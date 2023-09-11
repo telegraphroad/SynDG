@@ -1,5 +1,6 @@
 from . import (
     base,
+    base_extended,
     decoder,
     encoder,
     linear_interpolation,
@@ -17,6 +18,9 @@ from .base import (
     GaussianMixture,
     GaussianPCA,
     UniformGaussian,
+)
+from .base_extended import (
+    GeneralizedGaussianMixture
 )
 from .target import (
     Target,
