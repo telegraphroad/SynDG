@@ -20,7 +20,7 @@ from .base import (
     UniformGaussian,
 )
 from .base_extended import (
-    GeneralizedGaussianMixture
+    GeneralizedGaussianMixture,MultivariateStudentT
 )
 from .target import (
     Target,
