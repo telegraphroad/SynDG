@@ -221,3 +221,53 @@ class MultivariateStudentT(BaseDistribution):
         # Compute Student's T log probability
         log_p = StudentT(self.df).log_prob((z - self.loc).view(-1)).sum()
         return log_p
+    
+
+
+
+class StudentTDistribution(BaseDistribution):
+    """
+    Multivariate single-variate Student's T-distribution
+
+    Parameters:
+    shape (tuple): Shape of data
+    df (float, optional): Degrees of freedom. Default is 2.0.
+    trainable (bool, optional): If True, parameters will be optimized during training. Default is True.
+    """
+
+    def __init__(self, shape, df=2.0, trainable=True):
+        super().__init__()
+        if isinstance(shape, int):
+            shape = (shape,)
+        if isinstance(shape, list):
+            shape = tuple(shape)
+        self.shape = shape
+        self.n_dim = len(shape)
+
+        # Create parameters or buffers depending on whether they are trainable or not
+        if trainable:
+            self.loc = nn.Parameter(torch.zeros(1, *self.shape))
+            self.log_scale = nn.Parameter(torch.zeros(1, *self.shape))
+            self.df = nn.Parameter(torch.tensor(df))  # degrees of freedom
+        else:
+            self.register_buffer("loc", torch.zeros(1, *self.shape))
+            self.register_buffer("log_scale", torch.zeros(1, *self.shape))
+            self.register_buffer("df", torch.tensor(df))
+
+    def forward(self, num_samples=1):
+        # Draw samples from a normal distribution
+        eps = Normal(torch.zeros_like(self.log_scale), torch.ones_like(self.log_scale)).sample()
+
+        # Scale and shift by loc and scale, then apply Student's T transformation
+        z = self.loc + torch.exp(self.log_scale) * eps
+        z = z / (StudentT(self.df).rsample() / ((self.df - 2) ** 0.5))
+
+        # Compute log probability
+        log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum()
+
+        return z, log_p
+
+    def log_prob(self, z):
+        # Compute Student's T log probability
+        log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum()
+        return log_p

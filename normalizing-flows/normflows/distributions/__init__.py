@@ -7,6 +7,7 @@ from . import (
     mh_proposal,
     prior,
     target,
+    target_extended
 )
 
 from .base import (
@@ -20,7 +21,7 @@ from .base import (
     UniformGaussian,
 )
 from .base_extended import (
-    GeneralizedGaussianMixture,MultivariateStudentT
+    GeneralizedGaussianMixture,MultivariateStudentT,StudentTDistribution
 )
 from .target import (
     Target,
@@ -28,6 +29,9 @@ from .target import (
     CircularGaussianMixture,
     RingMixture,
     TwoIndependent
+)
+from .target_extended import (
+    NealsFunnel,
 )
 
 from .encoder import BaseEncoder, Dirac, Uniform, NNDiagGaussian
