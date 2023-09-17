@@ -6,7 +6,7 @@ from scipy import stats
 
 import torch
 import torch.nn as nn
-from torch.distributions import StudentT, MultivariateNormal, Categorical,MixtureSameFamily
+from torch.distributions import StudentT, MultivariateNormal, Categorical,MixtureSameFamily,Normal
 from torch.distributions import constraints, Distribution
 from torch.distributions.utils import broadcast_all
 
@@ -121,7 +121,7 @@ class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
     device (str, optional): Device to which tensors will be moved. Default is 'cuda'.
     """
 
-    def __init__(self, n_modes, dim, loc=0., scale=1., p=2., rand_p=True, noise_scale=0.01, weights=None, trainable_loc=False, trainable_scale=True, trainable_p=True, trainable_weights=True, device='cuda'):
+    def __init__(self, n_modes, dim, loc=0., scale=1., p=2., rand_p=True, noise_scale=0.01, weights=None, trainable_loc=True, trainable_scale=True, trainable_p=True, trainable_weights=True, device='cuda'):
         nn.Module.__init__(self) #init parent module
         with torch.no_grad():
             self.n_modes = n_modes
@@ -135,6 +135,8 @@ class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
             if rand_p:
                 noise = np.random.normal(0, noise_scale, p.shape)
                 p += noise
+                loc += noise
+                scale += noise
 
             # Initialize weights
             if weights is None:
@@ -143,22 +145,21 @@ class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
 
             # Create parameters or buffers depending on whether they are trainable or not
             if trainable_loc:
-                self.loc = nn.Parameter(torch.tensor(1.0 * loc, device=self.device))
+                self.loc = nn.Parameter(torch.tensor(1.0 * loc, device=self.device).float())
             else:
-                self.register_buffer("loc", torch.tensor(1.0 * loc, device=self.device))
+                self.register_buffer("loc", torch.tensor(1.0 * loc, device=self.device).float())
             if trainable_scale:
-                self.scale = nn.Parameter(torch.tensor(1.0 * scale, device=self.device))
+                self.scale = nn.Parameter(torch.tensor(1.0 * scale, device=self.device).float())
             else:
-                self.register_buffer("scale", torch.tensor(1.0 * scale, device=self.device))
+                self.register_buffer("scale", torch.tensor(1.0 * scale, device=self.device).float())
             if trainable_p:
-                self.p = nn.Parameter(torch.tensor(1.0 * p, device=self.device))
+                self.p = nn.Parameter(torch.tensor(1.0 * p, device=self.device).float())
             else:
-                self.register_buffer("p", torch.tensor(1.0 * p, device=self.device))
+                self.register_buffer("p", torch.tensor(1.0 * p, device=self.device).float())
             if trainable_weights:
-                self.weight_scores = nn.Parameter(torch.tensor(np.log(1.0 * weights), device=self.device))
+                self.weight_scores = nn.Parameter(torch.tensor(np.log(1.0 * weights), device=self.device).float())
             else:
-                self.register_buffer("weight_scores", torch.tensor(np.log(1.0 * weights), device=self.device))
-
+                self.register_buffer("weight_scores", torch.tensor(np.log(1.0 * weights), device=self.device).float())
             # Initialize the underlying Generalized Gaussian and Categorical distributions
             self.gg = torch.distributions.Independent(GeneralizedGaussianDistribution(self.loc, self.scale, self.p),1)
             self.cat = Categorical(torch.softmax(self.weight_scores, 0))
@@ -235,7 +236,7 @@ class StudentTDistribution(BaseDistribution):
     trainable (bool, optional): If True, parameters will be optimized during training. Default is True.
     """
 
-    def __init__(self, shape, df=2.0, trainable=True):
+    def __init__(self, shape, df=2.0, trainable=True, device='cuda'):
         super().__init__()
         if isinstance(shape, int):
             shape = (shape,)
@@ -243,12 +244,13 @@ class StudentTDistribution(BaseDistribution):
             shape = tuple(shape)
         self.shape = shape
         self.n_dim = len(shape)
+        self.device = device
 
         # Create parameters or buffers depending on whether they are trainable or not
         if trainable:
-            self.loc = nn.Parameter(torch.zeros(1, *self.shape))
-            self.log_scale = nn.Parameter(torch.zeros(1, *self.shape))
-            self.df = nn.Parameter(torch.tensor(df))  # degrees of freedom
+            self.loc = nn.Parameter(torch.zeros(1, *self.shape, device=self.device))
+            self.log_scale = nn.Parameter(torch.zeros(1, *self.shape, device=self.device))
+            self.df = nn.Parameter(torch.tensor(df,device=self.device))  # degrees of freedom
         else:
             self.register_buffer("loc", torch.zeros(1, *self.shape))
             self.register_buffer("log_scale", torch.zeros(1, *self.shape))
@@ -256,18 +258,19 @@ class StudentTDistribution(BaseDistribution):
 
     def forward(self, num_samples=1):
         # Draw samples from a normal distribution
-        eps = Normal(torch.zeros_like(self.log_scale), torch.ones_like(self.log_scale)).sample()
+        # eps = Normal(torch.zeros_like(self.log_scale), torch.ones_like(self.log_scale)).sample(num_samples)
 
-        # Scale and shift by loc and scale, then apply Student's T transformation
-        z = self.loc + torch.exp(self.log_scale) * eps
-        z = z / (StudentT(self.df).rsample() / ((self.df - 2) ** 0.5))
+        # # Scale and shift by loc and scale, then apply Student's T transformation
+        # z = self.loc + torch.exp(self.log_scale) * eps
+        # z = z / (StudentT(self.df).rsample() / ((self.df - 2) ** 0.5))
 
-        # Compute log probability
-        log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum()
-
-        return z, log_p
+        # # Compute log probability
+        # log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum()
+        z = StudentT(self.df, self.loc, torch.exp(self.log_scale)).sample((num_samples,))
+        log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum(dim=1)
+        return z.squeeze(), log_p
 
     def log_prob(self, z):
         # Compute Student's T log probability
-        log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum()
+        log_p = StudentT(self.df, self.loc, torch.exp(self.log_scale)).log_prob(z).sum(dim=1)
         return log_p

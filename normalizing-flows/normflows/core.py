@@ -2,8 +2,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+from geom_median.torch import compute_geometric_median
+
 from . import distributions
 from . import utils
+
 
 
 class NormalizingFlow(nn.Module):
@@ -84,7 +87,7 @@ class NormalizingFlow(nn.Module):
             log_det += log_d
         return x, log_det
 
-    def forward_kld(self, x):
+    def forward_kld(self, x, robust=False):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -99,9 +102,12 @@ class NormalizingFlow(nn.Module):
             z, log_det = self.flows[i].inverse(z)
             log_q += log_det
         log_q += self.q0.log_prob(z)
-        return -torch.mean(log_q)
+        if robust:
+            return -utils.tukey_biweight_estimator(log_q)
+        else:
+            return -torch.mean(log_q)
 
-    def reverse_kld(self, num_samples=1, beta=1.0, score_fn=True):
+    def reverse_kld(self, num_samples=1, beta=1.0, score_fn=True, robust=False):
         """Estimates reverse KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -128,7 +134,10 @@ class NormalizingFlow(nn.Module):
             log_q += self.q0.log_prob(z_)
             utils.set_requires_grad(self, True)
         log_p = self.p.log_prob(z)
-        return torch.mean(log_q) - beta * torch.mean(log_p)
+        if robust:
+            return utils.tukey_biweight_estimator(log_q) - beta * utils.utils.tukey_biweight_estimator(log_p)
+        else:
+            return torch.mean(log_q) - beta * torch.mean(log_p)
 
     def reverse_alpha_div(self, num_samples=1, alpha=1, dreg=False):
         """Alpha divergence when sampling from q

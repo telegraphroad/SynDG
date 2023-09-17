@@ -8,6 +8,7 @@
 # Import packages
 import torch
 import numpy as np
+from matplotlib import gridspec
 
 import normflows as nf
 
@@ -35,6 +36,7 @@ enable_cuda = True
 
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 target = nf.distributions.TwoMoons()
+target = nf.distributions.StudentTDistribution(2,df=2.)
 _l = target.sample(10000).median().item()
 
 # Define 2D Gaussian base distribution
@@ -46,8 +48,17 @@ p = 2.0  # Shape parameter for Gaussian
 base3 = nf.distributions.base_extended.GeneralizedGaussianDistribution(loc, scale, p)
 
 base2 = nf.distributions.base.DiagGaussian(2)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, dim=2,loc=_l,scale=1.,p=2.,device=device)
-
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=False, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
+base = nf.distributions.base.DiagGaussian(2)
+base4 = nf.distributions.GaussianMixture(n_modes=10,dim=2)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=False, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+base = nf.distributions.base.DiagGaussian(2)
+base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+#base = nf.distributions.base.DiagGaussian(2)
 # Define list of flows
 num_layers = 24
 flows = []
@@ -66,10 +77,17 @@ model = nf.NormalizingFlow(base, flows)
 
 # %%
 # Move model on GPU if available
+
 model = model.to(device)
 
 # %%
 # Define target distribution
+def check_model_params(model):
+    for name, param in model.named_parameters():
+        if torch.isnan(param).any() or torch.isinf(param).any():
+            print(f'Parameter {name} has NaNs or infs')
+
+
 # %%
 # Plot target distribution
 grid_size = 200
@@ -108,17 +126,17 @@ plt.show()
 
 # %%
 # Train model
-max_iter = 4000
-num_samples = 2 ** 9
-show_iter = 500
+max_iter = 10000
+num_samples = 2 ** 14
+show_iter = 250
 
 
 loss_hist = np.array([])
 
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
 max_norm = 1.0
-adjust_rate = 0.0001
-
+adjust_rate = 0.01
+model.sample(10**4)
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
     
@@ -126,38 +144,68 @@ for it in tqdm(range(max_iter)):
     x = target.sample(num_samples).to(device)
     
     # Compute loss
-    loss = model.forward_kld(x)
-    
+    try:
+        loss = model.forward_kld(x, robust=True)    
     # Do backprop and optimizer step
-    if ~(torch.isnan(loss) | torch.isinf(loss)):
-        loss.backward()
-        avg_norm = compute_average_grad_norm(model)
-        if avg_norm > max_norm:
-            max_norm += adjust_rate
-            #print('++++++++++++++++++++++++++',max_norm)
-        else:
-            max_norm -= adjust_rate
-            #print('++++++++++++++++++++++++++',max_norm)
-        with torch.no_grad():
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        if ~(torch.isnan(loss) | torch.isinf(loss)):
+            loss.backward()
+            avg_norm = compute_average_grad_norm(model)
+            if avg_norm > max_norm:
+                max_norm += adjust_rate
+                #print('++++++++++++++++++++++++++',max_norm)
+            else:
+                max_norm -= adjust_rate
+                #print('++++++++++++++++++++++++++',max_norm)
+            with torch.no_grad():
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-        optimizer.step()
-    
+
+            optimizer.step()
+        loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
+        if (it + 1) % show_iter == 0:
+            model.eval()
+            log_prob = model.log_prob(zz).detach().cpu()
+            model.train()
+            prob = torch.exp(log_prob.to('cpu').view(*xx.shape))
+            prob[torch.isnan(prob)] = 0
+
+            plt.figure(figsize=(15, 15))
+            plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+            plt.gca().set_aspect('equal', 'box')
+            plt.show()
+            with torch.no_grad():
+                model.eval()
+                x = target.sample(100000).to(device).cpu().detach().numpy()
+                y,_ = model.sample(100000)
+                y = y.to(device).cpu().detach().numpy()
+                model.train()
+                plt.figure(figsize=(15, 15))
+                #line plot the first marginals from x and y on one plot
+                plt.hist(x[:,0],bins=500,alpha=0.5,label='target')
+                plt.hist(y[:,0],bins=500,alpha=0.5,label='model')
+                plt.legend()
+                plt.show()
+                plt.figure(figsize=(15, 15))
+                plt.hist(x[:,1],bins=500,alpha=0.5,label='target')
+                plt.hist(y[:,1],bins=500,alpha=0.5,label='model')
+                plt.legend()
+                plt.show()
+
+            print(f'+++++++++++++ maxnorm: {max_norm}')
+            print('=======means: ',model.q0.component_distribution.base_dist.loc.mean().item(),model.q0.component_distribution.base_dist.scale.mean().item(),model.q0.component_distribution.base_dist.p.mean().item())
+            print('=======medians: ',model.q0.component_distribution.base_dist.loc.median().item(),model.q0.component_distribution.base_dist.scale.median().item(),model.q0.component_distribution.base_dist.p.median().item())
+            print('=======mins: ',model.q0.component_distribution.base_dist.loc.min().item(),model.q0.component_distribution.base_dist.scale.min().item(),model.q0.component_distribution.base_dist.p.min().item())
+            print('=======maxs: ',model.q0.component_distribution.base_dist.loc.max().item(),model.q0.component_distribution.base_dist.scale.max().item(),model.q0.component_distribution.base_dist.p.max().item())
+                
+
+
+    except Exception as e:
+        print('error',e)
+
     # Log loss
-    loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
+    
     
     # Plot learned distribution
-    if (it + 1) % show_iter == 0:
-        model.eval()
-        log_prob = model.log_prob(zz)
-        model.train()
-        prob = torch.exp(log_prob.to('cpu').view(*xx.shape))
-        prob[torch.isnan(prob)] = 0
-
-        plt.figure(figsize=(15, 15))
-        plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
-        plt.gca().set_aspect('equal', 'box')
-        plt.show()
 
 # Plot loss
 plt.figure(figsize=(10, 10))
@@ -167,6 +215,21 @@ plt.show()
 
 # %% [markdown]
 # ## Visualizing the learned distribution
+model.eval()
+x = target.sample(10**4).to(device).cpu().detach().numpy()
+y = model.sample(10**4)
+#model.train()
+#plt.figure(figsize=(15, 15))
+# #line plot the first marginals from x and y on one plot
+# plt.hist(x[:,0],bins=100,alpha=0.5,label='target')
+# plt.hist(y[:,0],bins=100,alpha=0.5,label='model')
+# plt.legend()
+# plt.show()
+# plt.figure(figsize=(15, 15))
+# plt.hist(x[:,1],bins=100,alpha=0.5,label='target')
+# plt.hist(y[:,1],bins=100,alpha=0.5,label='model')
+# plt.legend()
+# plt.show()
 
 # %%
 # Plot target distribution
@@ -263,7 +326,7 @@ for it in tqdm(range(max_iter)):
     x = target.sample(num_samples).to(device)
     
     # Compute loss
-    loss = model.forward_kld(x)
+    loss = model.forward_kld(x, robust=True)
     
     # Do backprop and optimizer step
     if ~(torch.isnan(loss) | torch.isinf(loss)):
