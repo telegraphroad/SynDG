@@ -118,7 +118,7 @@ def train_flow(config):
                 print(f'Parameter {name} has NaNs or infs')
 
     max_iter = 10000
-    num_samples = 2 ** 14
+    num_samples = 2 ** 11
     show_iter = 250
     loss_hist = np.array([])
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
@@ -196,9 +196,9 @@ tuner = tune.Tuner(
     train_flow,
     param_space=search_space,
 )
-#results = tuner.fit()
-analysis = tune.run(
-    train_flow, config=search_space, resources_per_trial={'gpu': 1})
+results = tuner.fit()
+# analysis = tune.run(
+#     train_flow, config=search_space, resources_per_trial={'gpu': 1})
 #dfs = {result.log_dir: result.metrics_dataframe for result in results}
 # dfs = {result.log_dir: result.metrics_dataframe for result in analysis}
 
@@ -223,4 +223,6 @@ analysis.get_best_config("loss", mode="max")
 dfs = torch.load("./dfs2_old.pth")
 import pandas as pd
 analysis.fetch_trial_dataframes()
+
 # %%
+analysis.get_best_config("loss", mode="min")
