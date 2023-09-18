@@ -191,6 +191,12 @@ search_space = {
     "num_layers": tune.choice([4,8,12,16,20,24,28]),
     "IB": tune.choice(['dec', 'inc','same']),
 }
+scheduler = ASHAScheduler(
+        metric="loss",
+        mode="min",
+        max_t=1000,
+        grace_period=1,
+        reduction_factor=2)
 # search_space = {
 #     "w": tune.choice([32]),
 #     "l": tune.choice([2]),
@@ -204,9 +210,10 @@ tuner = tune.Tuner(
     train_flow,
     param_space=search_space,
     tune_config=tune.TuneConfig(
-            metric="loss",
-            mode="min",
-            num_samples=5000,
+            # metric="loss",
+            # mode="min",
+            num_samples=10000,
+            scheduler=scheduler,
         ),
 )
 analysis = tuner.fit()
