@@ -117,15 +117,15 @@ def train_flow(config):
             if torch.isnan(param).any() or torch.isinf(param).any():
                 print(f'Parameter {name} has NaNs or infs')
 
-    max_iter = 10000
-    num_samples = 2 ** 10
+    max_iter = 1000
+    num_samples = 2 ** 9
     show_iter = 250
     loss_hist = np.array([])
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
     max_norm = 1.0
     adjust_rate = 0.01
     model.sample(10**4)
-
+    
     best_loss = float('inf')
     best_model_params = None
     if True:
@@ -191,9 +191,9 @@ search_space = {
 #     "num_layers": tune.choice([4]),
 #     "IB": tune.choice(['dec', 'inc','same']),
 # }
-
+resources_per_trial = {"cpu": 32, "gpu": 2}
 tuner = tune.Tuner(
-    train_flow,
+    tune.with_resources(train_flow, resources=resources_per_trial),
     param_space=search_space,
     tune_config=tune.TuneConfig(
             metric="loss",
@@ -201,7 +201,7 @@ tuner = tune.Tuner(
             num_samples=500,
         ),
 )
-results = tuner.fit()
+analysis = tuner.fit()
 # analysis = tune.run(
 #     train_flow, config=search_space, resources_per_trial={'gpu': 1})
 #dfs = {result.log_dir: result.metrics_dataframe for result in results}
