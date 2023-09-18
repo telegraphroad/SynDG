@@ -117,8 +117,8 @@ def train_flow(config):
             if torch.isnan(param).any() or torch.isinf(param).any():
                 print(f'Parameter {name} has NaNs or infs')
 
-    max_iter = 1000
-    num_samples = 2 ** 9
+    max_iter = 10000
+    num_samples = 2 ** 11
     show_iter = 250
     loss_hist = np.array([])
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
