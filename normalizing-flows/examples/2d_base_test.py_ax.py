@@ -67,6 +67,8 @@ def train_flow(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
     target = nf.distributions.RingMixture(n_rings=4)
+    target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
+
     #target = nf.distributions.StudentTDistribution(2,df=2.)
     _l = target.sample(10000).median().item()
 
