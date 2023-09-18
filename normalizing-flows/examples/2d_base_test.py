@@ -123,7 +123,7 @@ def train_flow(config):
             if torch.isnan(param).any() or torch.isinf(param).any():
                 print(f'Parameter {name} has NaNs or infs')
 
-    max_iter = 6000
+    max_iter = 8000
     num_samples = 2 ** 11
     show_iter = 250
     loss_hist = np.array([])
