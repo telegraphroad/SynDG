@@ -191,12 +191,12 @@ search_space = {
     "num_layers": tune.choice([4,8,12,16,20,24,28]),
     "IB": tune.choice(['dec', 'inc','same']),
 }
-scheduler = ASHAScheduler(
-    time_attr = 'training_iteration',
-        metric="loss",
-        mode="min",
-        max_t=1000,
-        grace_period=2000,)
+# scheduler = ASHAScheduler(
+#     time_attr = 'training_iteration',
+#         metric="loss",
+#         mode="min",
+#         max_t=1000,
+#         grace_period=2000,)
 # search_space = {
 #     "w": tune.choice([32]),
 #     "l": tune.choice([2]),
