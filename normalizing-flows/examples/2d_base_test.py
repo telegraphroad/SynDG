@@ -123,7 +123,7 @@ def train_flow(config):
             if torch.isnan(param).any() or torch.isinf(param).any():
                 print(f'Parameter {name} has NaNs or infs')
 
-    max_iter = 8000
+    max_iter = 7000
     num_samples = 2 ** 11
     show_iter = 250
     loss_hist = np.array([])
@@ -192,11 +192,11 @@ search_space = {
     "IB": tune.choice(['dec', 'inc','same']),
 }
 scheduler = ASHAScheduler(
+    time_attr = 'training_iteration',
         metric="loss",
         mode="min",
         max_t=1000,
-        grace_period=1,
-        reduction_factor=2)
+        grace_period=2000,)
 # search_space = {
 #     "w": tune.choice([32]),
 #     "l": tune.choice([2]),
@@ -210,11 +210,13 @@ tuner = tune.Tuner(
     train_flow,
     param_space=search_space,
     tune_config=tune.TuneConfig(
-            metric="loss",
-            mode="min",
-            num_samples=500,
-            #scheduler=scheduler,
+            # metric="loss",
+            # mode="min",
+            num_samples=10000,
+            max_concurrent_trials = 64,
+            scheduler=scheduler,
         ),
+        run_config=air.RunConfig(storage_path="/var/scratch/samiri/air_results", name="test_experiment_sched_max64")
 )
 analysis = tuner.fit()
 # analysis = tune.run(
