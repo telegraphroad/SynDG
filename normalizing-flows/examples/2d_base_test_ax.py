@@ -15,6 +15,52 @@ from ray import air, tune
 from ray.air import session
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.ax import AxSearch
+import numpy as np
+import torch
+from ax.service.ax_client import AxClient, ObjectiveProperties
+from ax.service.utils.report_utils import exp_to_df
+from ax.utils.notebook.plotting import init_notebook_plotting, render
+from ax.utils.tutorials.cnn_utils import evaluate, load_mnist, train
+
+init_notebook_plotting()
+dtype = torch.float
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+ax_client = AxClient()
+
+    # "w": tune.choice([32,64,128,256,512]),
+    # "l": tune.choice([2,3,4,5,6]),
+    # "num_layers": tune.choice([4,8,12,16,20,24,28]),
+    # "IB": tune.choice(['dec', 'inc','same']),
+
+ax_client.create_experiment(
+    name="tune_flow_on_nealsfunnel",  # The name of the experiment.
+    parameters=[
+        {
+            "name": "w",  # The name of the parameter.
+            "type": "choice",  # The type of the parameter ("range", "choice" or "fixed").
+            "values": [32,64,128,192,256,378,512],  # The bounds for range parameters. 
+        },
+        {
+            "name": "l",  # The name of the parameter.
+            "type": "choice",  # The type of the parameter ("range", "choice" or "fixed").
+            "values": [2,3,4,5,6,7],  # The bounds for range parameters. 
+        },
+        {
+            "name": "num_layers",  # The name of the parameter.
+            "type": "choice",  # The type of the parameter ("range", "choice" or "fixed").
+            "values": [4,8,12,16,20,24,28],  # The bounds for range parameters. 
+        },
+        {
+            "name": "IB",  # The name of the parameter.
+            "type": "choice",  # The type of the parameter ("range", "choice" or "fixed").
+            "values": ['dec', 'inc','same'],  # The bounds for range parameters. 
+        },
+    ],
+    objectives={"loss": ObjectiveProperties(minimize=True)},  # The objective name and minimization setting.
+    # parameter_constraints: Optional, a list of strings of form "p1 >= p2" or "p1 + p2 <= some_bound".
+    # outcome_constraints: Optional, a list of strings of form "constrained_metric <= some_bound".
+)
+
 
 
 def get_flows(num_layers=20,w=128,l=4,IB='same'):
@@ -62,7 +108,7 @@ def compute_average_grad_norm(model):
 
 # %%
 # Set up model
-def train_flow(config):
+def train_flow(parameterization):
     enable_cuda = True
 
     device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
@@ -127,11 +173,12 @@ def train_flow(config):
 
     best_loss = float('inf')
     best_model_params = None
+    
     if True:
-        l = config["l"]
-        w = config["w"]
-        num_layers = config["num_layers"]
-        IB = config["IB"]
+        l = parameterization["l"]
+        w = parameterization["w"]
+        num_layers = parameterization["num_layers"]
+        IB = parameterization["IB"]
 
         # flows = []
         # for _ in range(num_layers):
@@ -167,7 +214,7 @@ def train_flow(config):
                         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                     optimizer.step()
                 loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
-                session.report({"loss": loss.to('cpu').data.numpy()})
+                #session.report({"loss": loss.to('cpu').data.numpy()})
                 torch.save(model.state_dict(), "./model.pth")
                 if loss < best_loss:
                     best_loss = loss
@@ -177,6 +224,7 @@ def train_flow(config):
 
             except Exception as e:
                 print('error',e)
+    return loss.to('cpu').data.numpy()
 
 search_space = {
     "w": tune.choice([32,64,128,256,512]),
@@ -191,31 +239,24 @@ search_space = {
 #     "IB": tune.choice(['dec', 'inc','same']),
 # }
 
-tuner = tune.Tuner(
-    train_flow,
-    param_space=search_space,
-)
-#results = tuner.fit()
-analysis = tune.run(
-    train_flow, config=search_space, resources_per_trial={'gpu': 1})
-#dfs = {result.log_dir: result.metrics_dataframe for result in results}
-# dfs = {result.log_dir: result.metrics_dataframe for result in analysis}
-
-# [d.mean_accuracy.plot() for d in dfs.values()]
-#torch.save(results, "./results.pth")
-torch.save(analysis, "./analysis.pth")
-# torch.save(dfs, "./dfs.pth")
-dfs = analysis.fetch_trial_dataframes()
-[d.loss.plot() for d in dfs.values()]
-torch.save(dfs, "./dfs2.pth")
+# %%
 
 
-import os
+# %%
+
+for i in range(25):
+    parameters, trial_index = ax_client.get_next_trial()
+    # Local evaluation here can be replaced with deployment to external system.
+    ax_client.complete_trial(trial_index=trial_index, raw_data=train_flow(parameters))
 
 #logdir = results.get_best_result("mean_accuracy", mode="max").log_dir
 # logdir = analysis.get_best_result("loss", mode="max").log_dir
 # state_dict = torch.load(os.path.join(logdir, "model.pth"))
 
 # %%
-analysis.get_best_config("loss", mode="max")
+# analysis = torch.load("./analysis_old.pth")
+# analysis.get_best_config("loss", mode="max")
+# dfs = torch.load("./dfs2_old.pth")
+# import pandas as pd
+# analysis.fetch_trial_dataframes()
 # %%

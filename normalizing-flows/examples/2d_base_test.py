@@ -15,8 +15,9 @@ from ray import air, tune
 from ray.air import session
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.ax import AxSearch
-
-
+import numpy as np
+import torch
+  # Whether we should be minimizing or maximizing the objective
 def get_flows(num_layers=20,w=128,l=4,IB='same'):
     flows = []
     
@@ -67,6 +68,8 @@ def train_flow(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
     target = nf.distributions.RingMixture(n_rings=4)
+    target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
+
     #target = nf.distributions.StudentTDistribution(2,df=2.)
     _l = target.sample(10000).median().item()
 
@@ -114,7 +117,7 @@ def train_flow(config):
             if torch.isnan(param).any() or torch.isinf(param).any():
                 print(f'Parameter {name} has NaNs or infs')
 
-    max_iter = 1000
+    max_iter = 10000
     num_samples = 2 ** 14
     show_iter = 250
     loss_hist = np.array([])
@@ -211,6 +214,13 @@ torch.save(dfs, "./dfs2.pth")
 import os
 
 #logdir = results.get_best_result("mean_accuracy", mode="max").log_dir
-logdir = analysis.get_best_result("loss", mode="max").log_dir
-state_dict = torch.load(os.path.join(logdir, "model.pth"))
+# logdir = analysis.get_best_result("loss", mode="max").log_dir
+# state_dict = torch.load(os.path.join(logdir, "model.pth"))
 
+# %%
+analysis = torch.load("./analysis_old.pth")
+analysis.get_best_config("loss", mode="max")
+dfs = torch.load("./dfs2_old.pth")
+import pandas as pd
+analysis.fetch_trial_dataframes()
+# %%
