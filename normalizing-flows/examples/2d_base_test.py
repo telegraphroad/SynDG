@@ -117,7 +117,7 @@ def train_flow(config):
             if torch.isnan(param).any() or torch.isinf(param).any():
                 print(f'Parameter {name} has NaNs or infs')
 
-    max_iter = 10000
+    max_iter = 6000
     num_samples = 2 ** 11
     show_iter = 250
     loss_hist = np.array([])
@@ -191,14 +191,16 @@ search_space = {
 #     "num_layers": tune.choice([4]),
 #     "IB": tune.choice(['dec', 'inc','same']),
 # }
-resources_per_trial = {"cpu": 32, "gpu": 2}
+#resources_per_trial = {"cpu": 32, "gpu": 2}
+resources_per_trial = {"cpu": 64}
 tuner = tune.Tuner(
-    tune.with_resources(train_flow, resources=resources_per_trial),
+    #tune.with_resources(train_flow, resources=resources_per_trial),
+    train_flow,
     param_space=search_space,
     tune_config=tune.TuneConfig(
             metric="loss",
             mode="min",
-            num_samples=500,
+            num_samples=5000,
         ),
 )
 analysis = tuner.fit()
