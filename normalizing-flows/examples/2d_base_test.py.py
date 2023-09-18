@@ -37,6 +37,7 @@ enable_cuda = True
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 target = nf.distributions.TwoMoons()
 target = nf.distributions.StudentTDistribution(2,df=2.)
+target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
 _l = target.sample(10000).median().item()
 
 # Define 2D Gaussian base distribution
@@ -57,15 +58,15 @@ base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, ra
 base = nf.distributions.base.DiagGaussian(2)
 base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
 #base = nf.distributions.base.DiagGaussian(2)
 # Define list of flows
-num_layers = 24
+num_layers = 16
 flows = []
 for i in range(num_layers):
     # Neural network with two hidden layers having 64 units each
     # Last layer is initialized by zeros making training more stable
-    param_map = nf.nets.MLP([1, 64, 64, 2], init_zeros=True)
+    param_map = nf.nets.MLP([1, 256, 256, 2], init_zeros=True)
     # Add flow layer
     flows.append(nf.flows.AffineCouplingBlock(param_map))
     # Swap dimensions
@@ -190,6 +191,11 @@ for it in tqdm(range(max_iter)):
                 plt.hist(y[:,1],bins=500,alpha=0.5,label='model')
                 plt.legend()
                 plt.show()
+                plt.figure(figsize=(10, 10))
+                plt.plot(loss_hist, label='loss')
+                plt.legend()
+                plt.show()
+
 
             print(f'+++++++++++++ maxnorm: {max_norm}')
             print('=======means: ',model.q0.component_distribution.base_dist.loc.mean().item(),model.q0.component_distribution.base_dist.scale.mean().item(),model.q0.component_distribution.base_dist.p.mean().item())
