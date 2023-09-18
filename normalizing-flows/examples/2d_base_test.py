@@ -204,16 +204,16 @@ scheduler = ASHAScheduler(
 #     "IB": tune.choice(['dec', 'inc','same']),
 # }
 #resources_per_trial = {"cpu": 32, "gpu": 2}
-resources_per_trial = {"cpu": 64}
+resources_per_trial = {"cpu": 16}
 tuner = tune.Tuner(
     #tune.with_resources(train_flow, resources=resources_per_trial),
     train_flow,
     param_space=search_space,
     tune_config=tune.TuneConfig(
-            # metric="loss",
-            # mode="min",
-            num_samples=10000,
-            scheduler=scheduler,
+            metric="loss",
+            mode="min",
+            num_samples=500,
+            #scheduler=scheduler,
         ),
 )
 analysis = tuner.fit()
@@ -226,9 +226,9 @@ analysis = tuner.fit()
 #torch.save(results, "./results.pth")
 torch.save(analysis, "./analysis.pth")
 # torch.save(dfs, "./dfs.pth")
-dfs = analysis.fetch_trial_dataframes()
-[d.loss.plot() for d in dfs.values()]
-torch.save(dfs, "./dfs2.pth")
+#dfs = analysis.fetch_trial_dataframes()
+#[d.loss.plot() for d in dfs.values()]
+#torch.save(dfs, "./dfs2.pth")
 
 
 import os
@@ -238,11 +238,11 @@ import os
 # state_dict = torch.load(os.path.join(logdir, "model.pth"))
 
 # %%
-analysis = torch.load("./analysis_old.pth")
-analysis.get_best_config("loss", mode="max")
-dfs = torch.load("./dfs2_old.pth")
-import pandas as pd
-analysis.fetch_trial_dataframes()
+# analysis = torch.load("./analysis_old.pth")
+# analysis.get_best_config("loss", mode="max")
+# dfs = torch.load("./dfs2_old.pth")
+# import pandas as pd
+# analysis.fetch_trial_dataframes()
 
-# %%
-analysis.get_best_config("loss", mode="min")
+# # %%
+# analysis.get_best_config("loss", mode="min")
