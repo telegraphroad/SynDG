@@ -118,7 +118,7 @@ def train_flow(config):
                 print(f'Parameter {name} has NaNs or infs')
 
     max_iter = 10000
-    num_samples = 2 ** 11
+    num_samples = 2 ** 10
     show_iter = 250
     loss_hist = np.array([])
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
@@ -195,6 +195,11 @@ search_space = {
 tuner = tune.Tuner(
     train_flow,
     param_space=search_space,
+    tune_config=tune.TuneConfig(
+            metric="loss",
+            mode="min",
+            num_samples=500,
+        ),
 )
 results = tuner.fit()
 # analysis = tune.run(
