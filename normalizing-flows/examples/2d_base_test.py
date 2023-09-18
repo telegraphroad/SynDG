@@ -29,16 +29,22 @@ def get_flows(num_layers=20,w=128,l=4,IB='same'):
             flows.append(nf.flows.AffineCouplingBlock(param_map))
             flows.append(nf.flows.Permute(2, mode='swap'))
         elif IB == 'dec':
-            _l = l - ((i // (num_layers // l))) + 1
-            if _l == 0:
+            try:
+                _l = l - ((i // (num_layers // l))) + 1
+                if _l == 0:
+                    _l = 1
+            except:
                 _l = 1
             lay = [1] + [w]*l + [2]
             param_map = nf.nets.MLP(lay, init_zeros=True)
             flows.append(nf.flows.AffineCouplingBlock(param_map))
             flows.append(nf.flows.Permute(2, mode='swap'))
         elif IB == 'inc':
-            _l = (i // (num_layers // l)) + 1
-            if _l == 0:
+            try:
+                _l = (i // (num_layers // l)) + 1
+                if _l == 0:
+                    _l = 1
+            except:
                 _l = 1
             lay = [1] + [w]*_l + [2]
             param_map = nf.nets.MLP(lay, init_zeros=True)
