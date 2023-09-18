@@ -249,6 +249,14 @@ for i in range(25):
     # Local evaluation here can be replaced with deployment to external system.
     ax_client.complete_trial(trial_index=trial_index, raw_data=train_flow(parameters))
 
+dfs = ax_client.get_trials_data_frame()
+ax_client.save_to_json_file()  # For custom filepath, pass `filepath` argument.
+dfs.to_csv('ax_results.csv')
+
+best_parameters, values = ax_client.get_best_parameters()
+torch.save(best_parameters, "./best_parameters.pth")
+torch.save(values, "./values.pth")
+
 #logdir = results.get_best_result("mean_accuracy", mode="max").log_dir
 # logdir = analysis.get_best_result("loss", mode="max").log_dir
 # state_dict = torch.load(os.path.join(logdir, "model.pth"))
