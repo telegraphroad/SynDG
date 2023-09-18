@@ -175,7 +175,7 @@ def train_flow(config):
                     optimizer.step()
                 loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
                 session.report({"loss": loss.to('cpu').data.numpy()})
-                torch.save(model.state_dict(), "./model.pth")
+                #torch.save(model.state_dict(), "./model.pth")
                 if loss < best_loss:
                     best_loss = loss
                     best_model_params = (l, w, num_layers)
