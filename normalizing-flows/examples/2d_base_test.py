@@ -210,13 +210,13 @@ tuner = tune.Tuner(
     train_flow,
     param_space=search_space,
     tune_config=tune.TuneConfig(
-            # metric="loss",
-            # mode="min",
+            metric="loss",
+            mode="min",
             num_samples=10000,
             max_concurrent_trials = 64,
-            scheduler=scheduler,
+            #scheduler=scheduler,
         ),
-        run_config=air.RunConfig(storage_path="/var/scratch/samiri/air_results", name="test_experiment_sched_max64")
+        run_config=air.RunConfig(storage_path="/var/scratch/samiri/air_results", name="test_experiment_nosched_max64")
 )
 analysis = tuner.fit()
 # analysis = tune.run(
