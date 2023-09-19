@@ -74,7 +74,7 @@ def train_flow(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
     target = nf.distributions.RingMixture(n_rings=4)
-    target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
+    target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
 
     #target = nf.distributions.StudentTDistribution(2,df=2.)
     _l = target.sample(10000).median().item()
@@ -97,7 +97,7 @@ def train_flow(config):
     base = nf.distributions.base.DiagGaussian(2)
     base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
     base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-    base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+    base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
     #base = nf.distributions.base.DiagGaussian(2)
     # Define list of flows
     num_layers = 24
@@ -186,9 +186,9 @@ def train_flow(config):
                 print('error',e)
 
 search_space = {
-    "w": tune.choice([32,64,128,256,512]),
-    "l": tune.choice([2,3,4,5,6]),
-    "num_layers": tune.choice([4,8,12,16,20,24,28]),
+    "w": tune.choice([128,256,512]),
+    "l": tune.choice([2,4,6]),
+    "num_layers": tune.choice([6,12,18,24]),
     "IB": tune.choice(['dec', 'inc','same']),
 }
 # scheduler = ASHAScheduler(

@@ -37,7 +37,7 @@ enable_cuda = True
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 target = nf.distributions.TwoMoons()
 target = nf.distributions.StudentTDistribution(2,df=2.)
-target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
+target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
 _l = target.sample(10000).median().item()
 
 # Define 2D Gaussian base distribution
@@ -58,15 +58,17 @@ base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, ra
 base = nf.distributions.base.DiagGaussian(2)
 base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=30, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
 #base = nf.distributions.base.DiagGaussian(2)
 # Define list of flows
-num_layers = 16
+num_layers = 14
+#num_layers = 8
 flows = []
 for i in range(num_layers):
     # Neural network with two hidden layers having 64 units each
     # Last layer is initialized by zeros making training more stable
-    param_map = nf.nets.MLP([1, 256, 256, 2], init_zeros=True)
+    param_map = nf.nets.MLP([1, 256,372, 256, 2], init_zeros=True)
+    #param_map = nf.nets.MLP([1, 64,64, 2], init_zeros=True)
     # Add flow layer
     flows.append(nf.flows.AffineCouplingBlock(param_map))
     # Swap dimensions
@@ -128,15 +130,16 @@ plt.show()
 # %%
 # Train model
 max_iter = 10000
-num_samples = 2 ** 14
+num_samples = 2 ** 11
 show_iter = 250
 
 
 loss_hist = np.array([])
 
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
+#optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
 max_norm = 1.0
-adjust_rate = 0.01
+adjust_rate = 0.1
 model.sample(10**4)
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
@@ -159,6 +162,20 @@ for it in tqdm(range(max_iter)):
                 #print('++++++++++++++++++++++++++',max_norm)
             with torch.no_grad():
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            if (it + 1) % 100 == 0:
+
+                max_grad = 0.0
+                min_grad = 1e10
+                avg_grad = 0.0
+                num_params = 0
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        max_grad = max(max_grad, param.grad.data.abs().max().item())
+                        min_grad = min(min_grad, param.grad.data.abs().min().item())
+                        avg_grad += param.grad.data.abs().mean().item()
+                        num_params += 1
+                avg_grad /= num_params
+                print(f'Epoch {it+1}, Max Gradient: {max_grad:.6f}, Min Gradient: {min_grad:.6f}, Avg Gradient: {avg_grad:.6f}')
 
 
             optimizer.step()
@@ -206,7 +223,9 @@ for it in tqdm(range(max_iter)):
 
 
     except Exception as e:
-        print('error',e)
+        #print('error',e)
+        print('error')
+        break
 
     # Log loss
     
@@ -363,5 +382,5 @@ plt.show()
 
 # %% [markdown]
 # Now the modes are in better shape! And there is no bridge between the two modes!
-
+print('test')
 
