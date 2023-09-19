@@ -20,6 +20,8 @@ import torch
   # Whether we should be minimizing or maximizing the objective
 def get_flows(num_layers=20,w=128,l=4,IB='same'):
     flows = []
+    latent_size = 2
+    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
     
     for i in range(num_layers):
         # Create MLP with variable width and depth 
@@ -231,7 +233,7 @@ tuner = tune.Tuner(
             #scheduler=scheduler,
         ),
         run_config=air.RunConfig(storage_path="/var/scratch/samiri/air_results", name="test_experiment_nosched_max64")
-        
+
 )
 analysis = tuner.fit()
 # analysis = tune.run(
