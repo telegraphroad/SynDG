@@ -605,13 +605,13 @@ class GaussianMixture(BaseDistribution):
         weights /= weights.sum(1)
 
         if trainable:
-            self.loc = nn.Parameter(torch.tensor(1.0 * loc))
-            self.log_scale = nn.Parameter(torch.tensor(np.log(1.0 * scale)))
-            self.weight_scores = nn.Parameter(torch.tensor(np.log(1.0 * weights)))
+            self.loc = nn.Parameter(torch.tensor(1.0 * loc).float())
+            self.log_scale = nn.Parameter(torch.tensor(np.log(1.0 * scale)).float())
+            self.weight_scores = nn.Parameter(torch.tensor(np.log(1.0 * weights)).float())
         else:
-            self.register_buffer("loc", torch.tensor(1.0 * loc))
-            self.register_buffer("log_scale", torch.tensor(np.log(1.0 * scale)))
-            self.register_buffer("weight_scores", torch.tensor(np.log(1.0 * weights)))
+            self.register_buffer("loc", torch.tensor(1.0 * loc).float())
+            self.register_buffer("log_scale", torch.tensor(np.log(1.0 * scale)).float())
+            self.register_buffer("weight_scores", torch.tensor(np.log(1.0 * weights)).float())
 
     def forward(self, num_samples=1):
         # Get weights

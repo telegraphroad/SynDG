@@ -24,10 +24,15 @@ def get_flows(num_layers=20,w=128,l=4,IB='same'):
     for i in range(num_layers):
         # Create MLP with variable width and depth 
         if IB == 'same':
-            lay = [1] + [w]*l + [2]
-            param_map = nf.nets.MLP(lay, init_zeros=True)
-            flows.append(nf.flows.AffineCouplingBlock(param_map))
-            flows.append(nf.flows.Permute(2, mode='swap'))
+            lay = [2] + [w]*l + [2]
+            s = nf.nets.MLP(lay, init_zeros=True)
+            t = nf.nets.MLP(lay, init_zeros=True)
+            if i % 2 == 0:
+                flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+            else:
+                flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+            flows += [nf.flows.ActNorm(2)]
+
         elif IB == 'dec':
             try:
                 _l = l - ((i // (num_layers // l))) + 1
@@ -35,10 +40,14 @@ def get_flows(num_layers=20,w=128,l=4,IB='same'):
                     _l = 1
             except:
                 _l = 1
-            lay = [1] + [w]*l + [2]
-            param_map = nf.nets.MLP(lay, init_zeros=True)
-            flows.append(nf.flows.AffineCouplingBlock(param_map))
-            flows.append(nf.flows.Permute(2, mode='swap'))
+            lay = [2] + [w]*l + [2]
+            s = nf.nets.MLP(lay, init_zeros=True)
+            t = nf.nets.MLP(lay, init_zeros=True)
+            if i % 2 == 0:
+                flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+            else:
+                flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+            flows += [nf.flows.ActNorm(2)]
         elif IB == 'inc':
             try:
                 _l = (i // (num_layers // l)) + 1
@@ -46,10 +55,14 @@ def get_flows(num_layers=20,w=128,l=4,IB='same'):
                     _l = 1
             except:
                 _l = 1
-            lay = [1] + [w]*_l + [2]
-            param_map = nf.nets.MLP(lay, init_zeros=True)
-            flows.append(nf.flows.AffineCouplingBlock(param_map))
-            flows.append(nf.flows.Permute(2, mode='swap'))
+            lay = [2] + [w]*l + [2]
+            s = nf.nets.MLP(lay, init_zeros=True)
+            t = nf.nets.MLP(lay, init_zeros=True)
+            if i % 2 == 0:
+                flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+            else:
+                flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+            flows += [nf.flows.ActNorm(2)]
             
 
             
@@ -97,19 +110,19 @@ def train_flow(config):
     base = nf.distributions.base.DiagGaussian(2)
     base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
     base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-    base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+    base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
     #base = nf.distributions.base.DiagGaussian(2)
     # Define list of flows
     num_layers = 24
     flows = []
-    for i in range(num_layers):
-        # Neural network with two hidden layers having 64 units each
-        # Last layer is initialized by zeros making training more stable
-        param_map = nf.nets.MLP([1, 64, 64, 2], init_zeros=True)
-        # Add flow layer
-        flows.append(nf.flows.AffineCouplingBlock(param_map))
-        # Swap dimensions
-        flows.append(nf.flows.Permute(2, mode='swap'))
+    # for i in range(num_layers):
+    #     # Neural network with two hidden layers having 64 units each
+    #     # Last layer is initialized by zeros making training more stable
+    #     param_map = nf.nets.MLP([1, 64, 64, 2], init_zeros=True)
+    #     # Add flow layer
+    #     flows.append(nf.flows.AffineCouplingBlock(param_map))
+    #     # Swap dimensions
+    #     flows.append(nf.flows.Permute(2, mode='swap'))
         
     # Construct flow model
     flows = get_flows(num_layers=20,w=128,l=4,IB='same')
@@ -171,7 +184,7 @@ def train_flow(config):
                     else:
                         max_norm -= adjust_rate
                     with torch.no_grad():
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
                     optimizer.step()
                 loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
                 session.report({"loss": loss.to('cpu').data.numpy()})
@@ -184,6 +197,7 @@ def train_flow(config):
 
             except Exception as e:
                 print('error',e)
+                break
 
 search_space = {
     "w": tune.choice([128,256,512]),

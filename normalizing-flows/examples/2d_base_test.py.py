@@ -15,7 +15,7 @@ import normflows as nf
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
-
+import copy
 from tqdm import tqdm
 
 def compute_average_grad_norm(model):
@@ -58,21 +58,26 @@ base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, ra
 base = nf.distributions.base.DiagGaussian(2)
 base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=30, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, noise_scale=0.1, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=False, trainable_scale=False,trainable_p=True,trainable_weights=False)
+#base = nf.distributions.base.DiagGaussian(2)
+
+#base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 #base = nf.distributions.base.DiagGaussian(2)
 # Define list of flows
-num_layers = 14
+num_layers = 64
 #num_layers = 8
 flows = []
+latent_size = 2
+b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+flows = []
 for i in range(num_layers):
-    # Neural network with two hidden layers having 64 units each
-    # Last layer is initialized by zeros making training more stable
-    param_map = nf.nets.MLP([1, 256,372, 256, 2], init_zeros=True)
-    #param_map = nf.nets.MLP([1, 64,64, 2], init_zeros=True)
-    # Add flow layer
-    flows.append(nf.flows.AffineCouplingBlock(param_map))
-    # Swap dimensions
-    flows.append(nf.flows.Permute(2, mode='swap'))
+    s = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
+    t = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
+    if i % 2 == 0:
+        flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+    else:
+        flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+    flows += [nf.flows.ActNorm(latent_size)]
     
 # Construct flow model
 model = nf.NormalizingFlow(base, flows)
@@ -136,11 +141,12 @@ show_iter = 250
 
 loss_hist = np.array([])
 
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
-#optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+#optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
+optimizer = torch.optim.Adam(model.parameters(), lr=5e-5, weight_decay=5e-6)
 max_norm = 1.0
-adjust_rate = 0.1
+adjust_rate = 0.01
 model.sample(10**4)
+best_params = copy.deepcopy(model.state_dict())
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
     
@@ -161,7 +167,7 @@ for it in tqdm(range(max_iter)):
                 max_norm -= adjust_rate
                 #print('++++++++++++++++++++++++++',max_norm)
             with torch.no_grad():
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
             if (it + 1) % 100 == 0:
 
                 max_grad = 0.0
@@ -179,8 +185,11 @@ for it in tqdm(range(max_iter)):
 
 
             optimizer.step()
+            import copy
+            
         loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
         if (it + 1) % show_iter == 0:
+            best_params = copy.deepcopy(model.state_dict())
             model.eval()
             log_prob = model.log_prob(zz).detach().cpu()
             model.train()
@@ -223,8 +232,9 @@ for it in tqdm(range(max_iter)):
 
 
     except Exception as e:
-        #print('error',e)
-        print('error')
+        print('error',e)
+        model.state_dict = copy.deepcopy(best_params)
+        #print('error')
         break
 
     # Log loss
