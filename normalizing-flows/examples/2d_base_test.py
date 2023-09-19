@@ -231,6 +231,7 @@ tuner = tune.Tuner(
             #scheduler=scheduler,
         ),
         run_config=air.RunConfig(storage_path="/var/scratch/samiri/air_results", name="test_experiment_nosched_max64")
+        
 )
 analysis = tuner.fit()
 # analysis = tune.run(
