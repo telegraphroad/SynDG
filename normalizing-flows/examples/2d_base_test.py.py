@@ -37,7 +37,7 @@ enable_cuda = True
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 target = nf.distributions.TwoMoons()
 target = nf.distributions.StudentTDistribution(2,df=2.)
-target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
+target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
 _l = target.sample(10000).median().item()
 
 # Define 2D Gaussian base distribution
@@ -58,27 +58,29 @@ base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, ra
 base = nf.distributions.base.DiagGaussian(2)
 base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, noise_scale=0.1, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=False, trainable_scale=False,trainable_p=True,trainable_weights=False)
+trnbl = True
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=25, rand_p=True, noise_scale=0.2, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
 #base = nf.distributions.base.DiagGaussian(2)
 
 #base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 #base = nf.distributions.base.DiagGaussian(2)
 # Define list of flows
-num_layers = 64
+num_layers = 18
 #num_layers = 8
 flows = []
 latent_size = 2
 b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
 flows = []
 for i in range(num_layers):
-    s = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
-    t = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
+    s = nf.nets.MLP([latent_size, 128,128,128, latent_size], init_zeros=True)
+    t = nf.nets.MLP([latent_size, 128,128,128, latent_size], init_zeros=True)
     if i % 2 == 0:
         flows += [nf.flows.MaskedAffineFlow(b, t, s)]
     else:
         flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
     flows += [nf.flows.ActNorm(latent_size)]
-    
+
+
 # Construct flow model
 model = nf.NormalizingFlow(base, flows)
 
@@ -134,7 +136,7 @@ plt.show()
 
 # %%
 # Train model
-max_iter = 10000
+max_iter = 5000
 num_samples = 2 ** 11
 show_iter = 250
 
@@ -142,12 +144,15 @@ show_iter = 250
 loss_hist = np.array([])
 
 #optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-5, weight_decay=5e-6)
-max_norm = 1.0
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+max_norm = 0.5
 adjust_rate = 0.01
 model.sample(10**4)
 best_params = copy.deepcopy(model.state_dict())
+bestloss = 1e10
 for it in tqdm(range(max_iter)):
+    # if it == 1000:
+    #     optimizer.set_lr(1e-6)
     optimizer.zero_grad()
     
     # Get training samples
@@ -156,19 +161,37 @@ for it in tqdm(range(max_iter)):
     # Compute loss
     try:
         loss = model.forward_kld(x, robust=True)    
+        # l2_lambda = 0.001  # The strength of the regularization
+        # l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+        # loss = loss + l2_lambda * l2_norm
     # Do backprop and optimizer step
         if ~(torch.isnan(loss) | torch.isinf(loss)):
             loss.backward()
-            avg_norm = compute_average_grad_norm(model)
+            avg_grad = 0.0
+            num_params = 0
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    avg_grad += param.grad.data.abs().mean().item()
+                    num_params += 1
+            avg_grad /= num_params
+            
+            avg_norm = avg_grad
             if avg_norm > max_norm:
                 max_norm += adjust_rate
                 #print('++++++++++++++++++++++++++',max_norm)
             else:
                 max_norm -= adjust_rate
                 #print('++++++++++++++++++++++++++',max_norm)
-            with torch.no_grad():
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            # with torch.no_grad():
+            #     #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            # print('=======mins: ',model.q0.loc.min().item(),model.q0.scale.min().item(),model.q0.p.min().item())
+            # print('=======maxs: ',model.q0.loc.max().item(),model.q0.scale.max().item(),model.q0.p.max().item())
+
             if (it + 1) % 100 == 0:
+                print(f'+++++++++++++ avgnorm: {avg_norm},{avg_grad},{bestloss}')
+                print('=======mins: ',model.q0.loc.min().item(),model.q0.scale.min().item(),model.q0.p.min().item())
+                print('=======maxs: ',model.q0.loc.max().item(),model.q0.scale.max().item(),model.q0.p.max().item())
 
                 max_grad = 0.0
                 min_grad = 1e10
@@ -186,10 +209,13 @@ for it in tqdm(range(max_iter)):
 
             optimizer.step()
             import copy
-            
+            with torch.no_grad():
+                if loss.item()<bestloss:
+                    bestloss = copy.deepcopy(loss.item())
+                    best_params = copy.deepcopy(model.state_dict())
         loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
         if (it + 1) % show_iter == 0:
-            best_params = copy.deepcopy(model.state_dict())
+            
             model.eval()
             log_prob = model.log_prob(zz).detach().cpu()
             model.train()
@@ -223,19 +249,44 @@ for it in tqdm(range(max_iter)):
                 plt.show()
 
 
-            print(f'+++++++++++++ maxnorm: {max_norm}')
-            print('=======means: ',model.q0.component_distribution.base_dist.loc.mean().item(),model.q0.component_distribution.base_dist.scale.mean().item(),model.q0.component_distribution.base_dist.p.mean().item())
-            print('=======medians: ',model.q0.component_distribution.base_dist.loc.median().item(),model.q0.component_distribution.base_dist.scale.median().item(),model.q0.component_distribution.base_dist.p.median().item())
-            print('=======mins: ',model.q0.component_distribution.base_dist.loc.min().item(),model.q0.component_distribution.base_dist.scale.min().item(),model.q0.component_distribution.base_dist.p.min().item())
-            print('=======maxs: ',model.q0.component_distribution.base_dist.loc.max().item(),model.q0.component_distribution.base_dist.scale.max().item(),model.q0.component_distribution.base_dist.p.max().item())
+            print(f'+++++++++++++ avgnorm: {avg_norm},{avg_grad},{bestloss}')
+            print('=======means: ',model.q0.loc.mean().item(),model.q0.scale.mean().item(),model.q0.p.mean().item())
+            print('=======medians: ',model.q0.loc.median().item(),model.q0.scale.median().item(),model.q0.p.median().item())
+            print('=======mins: ',model.q0.loc.min().item(),model.q0.scale.min().item(),model.q0.p.min().item())
+            print('=======maxs: ',model.q0.loc.max().item(),model.q0.scale.max().item(),model.q0.p.max().item())
                 
 
 
     except Exception as e:
-        print('error',e)
-        model.state_dict = copy.deepcopy(best_params)
+        if True:
+            #print('error',e)
+            with torch.no_grad():
+                # b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+                # flows = []
+                # for i in range(num_layers):
+                #     s = nf.nets.MLP([latent_size, 16,16, latent_size], init_zeros=True)
+                #     t = nf.nets.MLP([latent_size, 16,16, latent_size], init_zeros=True)
+                #     if i % 2 == 0:
+                #         flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+                #     else:
+                #         flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+                #     flows += [nf.flows.ActNorm(latent_size)]
+
+
+                # # Construct flow model
+                # model = nf.NormalizingFlow(base, flows)
+
+                model.load_state_dict(best_params)
+                print(f'+++++++++++++ avgnorm: {avg_norm},{avg_grad},{bestloss}')
+                print('=======mins: ',model.q0.loc.min().item(),model.q0.scale.min().item(),model.q0.p.min().item())
+                print('=======maxs: ',model.q0.loc.max().item(),model.q0.scale.max().item(),model.q0.p.max().item())
+
+                # optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+
+                #model = model.to(device)
+                #model.train()
+
         #print('error')
-        break
 
     # Log loss
     
@@ -248,149 +299,142 @@ plt.plot(loss_hist, label='loss')
 plt.legend()
 plt.show()
 
-# %% [markdown]
-# ## Visualizing the learned distribution
-model.eval()
-x = target.sample(10**4).to(device).cpu().detach().numpy()
-y = model.sample(10**4)
-#model.train()
-#plt.figure(figsize=(15, 15))
-# #line plot the first marginals from x and y on one plot
-# plt.hist(x[:,0],bins=100,alpha=0.5,label='target')
-# plt.hist(y[:,0],bins=100,alpha=0.5,label='model')
-# plt.legend()
+# %%
+
+# # %% [markdown]
+# # Now the modes are in better shape! And there is no bridge between the two modes!
+# num_samples = 2 ** 12
+# _s,_ = model.sample(num_samples)
+# mix = model.q0.mixture
+# component_distributions = mix.component_distribution.base_dist
+# mixture_weights = mix.mixture_distribution.probs
+
+# num_samples = _s.shape[0]
+# num_components = mixture_weights.shape[-1]
+
+# # Create a tensor to store the probabilities for each component on each sample
+# probabilities = []
+# i = 0
+
+# probabilities = []
+# for i in range(model.q0.n_modes):
+#     loc_i = model.q0.loc[i]
+#     scale_i = model.q0.scale[i]
+#     p_i = model.q0.p[i]
+    
+#     # Create a GeneralizedGaussianDistribution for the i-th component
+#     gg_i = torch.distributions.Independent(
+#         nf.distributions.base_extended.GeneralizedGaussianDistribution(loc_i, scale_i, p_i), 1)
+        
+#     # Evaluate the probability of _s under this distribution
+#     log_prob_i = gg_i.log_prob(_s)
+    
+#     # Convert to probability from log probability
+#     prob_i = torch.exp(log_prob_i)
+#     #prob_i = log_prob_i
+#     probabilities.append(prob_i)
+
+# probabilities = torch.stack(probabilities).T
+# probs = probabilities.detach().cpu().numpy()
+# import pandas as pd
+# import seaborn as sns
+# df = pd.DataFrame(probs)
+
+# bins = np.linspace(probabilities.min().item(), probabilities.max().item(), 20) # 20 bins between 0 and 1
+
+# df_binned = df.apply(lambda col: pd.cut(col, bins, labels=bins[:-1]))
+
+# df_mean_probs = df_binned.apply(lambda col: df[col.name].groupby(df_binned[col.name]).median())
+
+# df_long = df_mean_probs.reset_index().melt(id_vars='index', var_name='Distribution', value_name='Mean Probability')
+
+# plt.figure(figsize=(10, 10))
+# scatter = sns.scatterplot(data=df_long, x='index', y='Distribution', size='Mean Probability', hue='Mean Probability', palette='viridis_r', legend=False)
+# plt.xlabel('Probability Bin')
+# plt.ylabel('Distribution')
+
+# plt.yticks(ticks=np.arange(model.q0.n_modes), labels=np.arange(1, model.q0.n_modes + 1))
+
+# norm = plt.Normalize(df_long['Mean Probability'].min(), df_long['Mean Probability'].max())
+# sm = plt.cm.ScalarMappable(cmap="viridis_r", norm=norm)
+# sm.set_array([])
+
+# plt.colorbar(sm, label='Mean Probability')
+
 # plt.show()
-# plt.figure(figsize=(15, 15))
-# plt.hist(x[:,1],bins=100,alpha=0.5,label='target')
-# plt.hist(y[:,1],bins=100,alpha=0.5,label='model')
-# plt.legend()
-# plt.show()
 
-# %%
-# Plot target distribution
-f, ax = plt.subplots(1, 2, sharey=True, figsize=(15, 7))
+# %% [markdown]
+import numpy as np
+import matplotlib.pyplot as plt
+num_samples = 2 ** 15
+_s,_ = model.sample(num_samples)
+mix = model.q0.mixture
+component_distributions = mix.component_distribution.base_dist
+mixture_weights = mix.mixture_distribution.probs
 
-log_prob = target.log_prob(zz).to('cpu').view(*xx.shape)
-prob = torch.exp(log_prob)
-prob[torch.isnan(prob)] = 0
+num_samples = _s.shape[0]
+num_components = mixture_weights.shape[-1]
 
-ax[0].pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+# Create a tensor to store the probabilities for each component on each sample
+probabilities = []
+i = 0
 
-ax[0].set_aspect('equal', 'box')
-ax[0].set_axis_off()
-ax[0].set_title('Target', fontsize=24)
+probabilities = []
+for i in range(model.q0.n_modes):
+    loc_i = model.q0.loc[i]
+    scale_i = model.q0.scale[i]
+    p_i = model.q0.p[i]
+    
+    # Create a GeneralizedGaussianDistribution for the i-th component
+    gg_i = torch.distributions.Independent(
+        nf.distributions.base_extended.GeneralizedGaussianDistribution(loc_i, scale_i, p_i), 1)
+        
+    # Evaluate the probability of _s under this distribution
+    log_prob_i = gg_i.log_prob(_s)
+    
+    # Convert to probability from log probability
+    prob_i = torch.exp(log_prob_i)
+    #prob_i = log_prob_i
+    probabilities.append(prob_i)
 
-# Plot learned distribution
-model.eval()
-log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
-model.train()
-prob = torch.exp(log_prob)
-prob[torch.isnan(prob)] = 0
+probabilities = torch.stack(probabilities).T
+probs = probabilities.detach().cpu().numpy()
 
-ax[1].pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+# Assuming oprobs and mprobs are numpy arrays
+oprobs = target.log_prob(_s).exp().detach().cpu().numpy()
+mprobs = probs
+nbins = 30
+# Create 100 bins between min and max of oprobs
+bins = np.linspace(np.min(oprobs), np.max(oprobs), nbins+1)
 
-ax[1].set_aspect('equal', 'box')
-ax[1].set_axis_off()
-ax[1].set_title('Real NVP', fontsize=24)
+# Digitize oprobs into bins
+indices = np.digitize(oprobs, bins)
 
-plt.subplots_adjust(wspace=0.1)
+# Prepare an array to store mean probabilities
+mean_probs = np.full((nbins, num_components), np.nan)
 
+# Calculate mean probabilities for each bin and each mixture component
+for i in range(num_components):
+    for j in range(nbins):
+        if np.any(indices == j + 1):
+            mean_probs[j, i] = np.mean(mprobs[indices == j + 1, i])
+
+# Flattening the data for scatter plot
+x, y = np.meshgrid(range(nbins), range(num_components))
+x, y, c = x.flatten(), y.flatten(), mean_probs.flatten()
+
+# Create a 2D plot
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# Use a scatter plot with circle color intensity reflecting the mean probability
+scatter = ax.scatter(x, y, c=c, cmap='viridis', alpha=0.6)
+
+ax.set_xlabel('Bins')
+ax.set_ylabel('Mixture Components')
+
+fig.colorbar(scatter, label='Mean Probability')
 plt.show()
+# %%
 
-# %% [markdown]
-# Notice there is a bridge between the two modes of the learned target.
-# This is not a big deal usually since the bridge is really thin, and going to higher dimensional space will make it expoentially unlike to have samples within the bridge.
-# However, we can see the shape of each mode is also a bit distorted.
-# So it would be nice to get rid of the bridge. Now let's try to use a Gaussian mixture distribution as our base distribution, instead of a single Gaussian.
-
-# %% [markdown]
-# # Use a Gaussian mixture model as the base instead
 
 # %%
-# Set up model
-
-# Define a mixture of Gaussians with 2 modes.
-# base = nf.distributions.base.GaussianMixture(2,2, loc=[[-2,0],[2,0]],scale=[[0.3,0.3],[0.3,0.3]])
-# base = nf.distributions.base_extended.MultivariateStudentT(2,df=5.)
-# Define list of flows
-num_layers = 32
-flows = []
-for i in range(num_layers):
-    # Neural network with two hidden layers having 64 units each
-    # Last layer is initialized by zeros making training more stable
-    param_map = nf.nets.MLP([1, 64, 64, 2], init_zeros=True)
-    # Add flow layer
-    flows.append(nf.flows.AffineCouplingBlock(param_map))
-    # Swap dimensions
-    flows.append(nf.flows.Permute(2, mode='swap'))
-    
-# Construct flow model
-model = nf.NormalizingFlow(base3, flows).cuda()
-
-# %%
-# Plot initial flow distribution
-model.eval()
-log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
-model.train()
-prob = torch.exp(log_prob)
-prob[torch.isnan(prob)] = 0
-
-plt.figure(figsize=(15, 15))
-plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
-plt.gca().set_aspect('equal', 'box')
-plt.show()
-
-# %% [markdown]
-# ## Train the new model
-
-# %%
-# Train model
-max_iter = 4000
-num_samples = 2 ** 9
-show_iter = 500
-
-
-loss_hist = np.array([])
-
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-5)
-
-for it in tqdm(range(max_iter)):
-    optimizer.zero_grad()
-    
-    # Get training samples
-    x = target.sample(num_samples).to(device)
-    
-    # Compute loss
-    loss = model.forward_kld(x, robust=True)
-    
-    # Do backprop and optimizer step
-    if ~(torch.isnan(loss) | torch.isinf(loss)):
-        loss.backward()
-        optimizer.step()
-    
-    # Log loss
-    loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
-    
-    # Plot learned distribution
-    if (it + 1) % show_iter == 0:
-        model.eval()
-        log_prob = model.log_prob(zz)
-        model.train()
-        prob = torch.exp(log_prob.to('cpu').view(*xx.shape))
-        prob[torch.isnan(prob)] = 0
-
-        plt.figure(figsize=(15, 15))
-        plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
-        plt.gca().set_aspect('equal', 'box')
-        plt.show()
-
-# Plot loss
-plt.figure(figsize=(10, 10))
-plt.plot(loss_hist, label='loss')
-plt.legend()
-plt.show()
-
-# %% [markdown]
-# Now the modes are in better shape! And there is no bridge between the two modes!
-print('test')
-
