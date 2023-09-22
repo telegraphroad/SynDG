@@ -87,7 +87,7 @@ class NormalizingFlow(nn.Module):
             log_det += log_d
         return x, log_det
 
-    def forward_kld(self, x, robust=False):
+    def forward_kld(self, x, robust=False, rmethod = 'geomed'):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -103,7 +103,12 @@ class NormalizingFlow(nn.Module):
             log_q += log_det
         log_q += self.q0.log_prob(z)
         if robust:
-            return -utils.tukey_biweight_estimator(log_q)
+            if rmethod == 'geomed':
+                return -compute_geometric_median(-log_q).median
+            elif rmethod == 'med':
+                return -torch.median(log_q)
+            elif rmethod == 'tukey':
+                return -utils.tukey_biweight_estimator(log_q)
         else:
             return -torch.mean(log_q)
 
