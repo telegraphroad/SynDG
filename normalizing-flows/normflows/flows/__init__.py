@@ -15,6 +15,7 @@ from .affine.coupling import (
     MaskedAffineFlow,
     AffineCouplingBlock,
 )
+from .variational_dequantization import MADE, MAF, ShiftScaleFlow, MLP,VariationalDequantization
 from .affine.glow import GlowBlock
 from .affine.autoregressive import MaskedAffineAutoregressive
 
