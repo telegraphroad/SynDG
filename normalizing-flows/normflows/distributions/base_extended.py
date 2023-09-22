@@ -6,7 +6,7 @@ from scipy import stats
 
 import torch
 import torch.nn as nn
-from torch.distributions import StudentT, MultivariateNormal, Categorical,MixtureSameFamily,Normal
+from torch.distributions import StudentT, MultivariateNormal, Categorical,MixtureSameFamily
 from torch.distributions import constraints, Distribution
 from torch.distributions.utils import broadcast_all
 
@@ -101,7 +101,7 @@ class GeneralizedGaussianDistribution(Distribution):
 
 
 
-class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
+class GeneralizedGaussianMixture(BaseDistribution):
     """
     Mixture of Generalized Gaussians
 
@@ -122,7 +122,7 @@ class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
     """
 
     def __init__(self, n_modes, dim, loc=0., scale=1., p=2., rand_p=True, noise_scale=0.01, weights=None, trainable_loc=True, trainable_scale=True, trainable_p=True, trainable_weights=True, device='cuda'):
-        nn.Module.__init__(self) #init parent module
+        super().__init__()
         with torch.no_grad():
             self.n_modes = n_modes
             self.dim = dim
@@ -136,8 +136,8 @@ class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
                 noise = np.random.normal(0, noise_scale, p.shape)
                 p += noise
                 loc += noise
-                scale += noise
-
+                scale += np.abs(noise)
+                
             # Initialize weights
             if weights is None:
                 weights = np.ones(self.n_modes)
@@ -145,35 +145,42 @@ class GeneralizedGaussianMixture(MixtureSameFamily,nn.Module):
 
             # Create parameters or buffers depending on whether they are trainable or not
             if trainable_loc:
-                self.loc = nn.Parameter(torch.tensor(1.0 * loc, device=self.device).float())
+                self.loc = nn.Parameter(torch.tensor(1.0 * loc, device=self.device).float(),requires_grad=True)
             else:
                 self.register_buffer("loc", torch.tensor(1.0 * loc, device=self.device).float())
             if trainable_scale:
-                self.scale = nn.Parameter(torch.tensor(1.0 * scale, device=self.device).float())
+                self.scale = nn.Parameter(torch.tensor(1.0 * scale, device=self.device).float(),requires_grad=True) 
             else:
                 self.register_buffer("scale", torch.tensor(1.0 * scale, device=self.device).float())
             if trainable_p:
-                self.p = nn.Parameter(torch.tensor(1.0 * p, device=self.device).float())
+                self.p = nn.Parameter(torch.tensor(1.0 * p, device=self.device).float(),requires_grad=True)
             else:
                 self.register_buffer("p", torch.tensor(1.0 * p, device=self.device).float())
             if trainable_weights:
-                self.weight_scores = nn.Parameter(torch.tensor(np.log(1.0 * weights), device=self.device).float())
+                self.weight_scores = nn.Parameter(torch.tensor(np.log(1.0 * weights), device=self.device).float(),requires_grad=True)
             else:
                 self.register_buffer("weight_scores", torch.tensor(np.log(1.0 * weights), device=self.device).float())
             # Initialize the underlying Generalized Gaussian and Categorical distributions
             self.gg = torch.distributions.Independent(GeneralizedGaussianDistribution(self.loc, self.scale, self.p),1)
             self.cat = Categorical(torch.softmax(self.weight_scores, 0))
 
-            super().__init__(self.cat, self.gg)
+            self.mixture = MixtureSameFamily(self.cat, self.gg)
+
 
     def forward(self, num_samples=1):
         # Sample mode indices
-        z = self.sample((num_samples,))
+        z = self.mixture.sample((num_samples,))
 
         # Compute log probability
-        log_p = self.log_prob(z)
+        log_p = self.mixture.log_prob(z)
 
         return z, log_p
+    
+    def log_prob(self, z):
+        # Compute log probability
+        log_p = self.mixture.log_prob(z)
+        return log_p
+    
 
 class MultivariateStudentT(BaseDistribution):
     """
