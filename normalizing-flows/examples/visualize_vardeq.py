@@ -62,3 +62,17 @@ for epoch in range(num_epochs):
             #set plot title to epoch
             plt.title(f"Epoch {epoch}")
             plt.show()
+
+# %%
+z,ldj = dequant(data,torch.zeros(data.shape[0]), reverse=False)
+z,_ = dequant(z,torch.zeros(data.shape[0]), reverse=True)
+print(data.unique(),z.unique())
+plt.hist(data.detach().numpy(), bins=100, density=True, color='blue')
+plt.title(f"Epoch {epoch}")
+plt.show()
+plt.hist(z.detach().numpy(), bins=100, density=True, color='red')
+#set plot title to epoch
+plt.title(f"Epoch {epoch}")
+plt.show()
+
+# %%

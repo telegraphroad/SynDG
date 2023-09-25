@@ -15,7 +15,7 @@ from .affine.coupling import (
     MaskedAffineFlow,
     AffineCouplingBlock,
 )
-from .variational_dequantization import MADE, MAF, ShiftScaleFlow, MLP,VariationalDequantization
+from .variational_dequantization import VDMADE, VDMAF, VDShiftScaleFlow, VDMLP,VariationalDequantizer
 from .affine.glow import GlowBlock
 from .affine.autoregressive import MaskedAffineAutoregressive
 
@@ -43,4 +43,5 @@ from . import (
     reshape,
     residual,
     stochastic,
+    variational_dequantization
 )

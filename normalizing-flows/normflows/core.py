@@ -4,17 +4,18 @@ import numpy as np
 
 from geom_median.torch import compute_geometric_median
 
-from . import distributions
+from normflows import distributions
 from . import utils
 
-
+#from normflows.flows.variational_dequantization import ShiftScaleFlow, VariationalDequantization
+from .flows import VariationalDequantizer, VDShiftScaleFlow, VDMAF
 
 class NormalizingFlow(nn.Module):
     """
     Normalizing Flow model to approximate target distribution
     """
 
-    def __init__(self, q0, flows, p=None):
+    def __init__(self, q0, flows, p=None, categoricals=None, vardeq_layers=2, vardeq_flow_type='shiftscale',device='cuda'):
         """Constructor
 
         Args:
@@ -26,6 +27,20 @@ class NormalizingFlow(nn.Module):
         self.q0 = q0
         self.flows = nn.ModuleList(flows)
         self.p = p
+        self.categoricals = categoricals
+        self.vardeq_layes = {}
+        self.device = device
+        if categoricals is not None:
+            for feature, num_categories in categoricals.items():
+                if vardeq_flow_type == 'shiftscale':
+                  _flows = [VDShiftScaleFlow(1,32).to(device) for _ in range(2)]
+                elif vardeq_flow_type == 'maf':
+                  _flows = [VDMAF(1,32).to(device) for _ in range(2)]
+                dequant = VariationalDequantizer(var_flows=_flows, num_cat=num_categories).to(device)
+                self.vardeq_layes[feature] = dequant
+
+
+                
 
     def forward(self, z):
         """Transforms latent variable z to the flow variable x
@@ -98,6 +113,11 @@ class NormalizingFlow(nn.Module):
         """
         log_q = torch.zeros(len(x), device=x.device)
         z = x
+        if self.categoricals is not None:
+            for feature, _ in self.categoricals.items():
+                _f,_ld = self.vardeq_layes[feature](z[:,feature].unsqueeze(1),torch.zeros(z[:,feature].shape[0],device=self.device), reverse=False)
+                z[:,feature] = _f.squeeze()
+                log_q += _ld
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z)
             log_q += log_det
@@ -191,6 +211,10 @@ class NormalizingFlow(nn.Module):
         for flow in self.flows:
             z, log_det = flow(z)
             log_q -= log_det
+        if self.categoricals is not None:
+            for feature, _ in self.categoricals.items():
+                z[:,feature] = self.vardeq_layes[feature](z[:,feature].unsqueeze(1),torch.zeros(z[:,feature].shape[0],device=self.device), reverse=True)[0].squeeze()
+
         return z, log_q
 
     def log_prob(self, x):

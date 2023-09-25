@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-class MADE(nn.Module):
+class VDMADE(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
         self.input_dim = input_dim
@@ -25,10 +25,10 @@ class MADE(nn.Module):
         return output[..., :self.input_dim], output[..., self.input_dim:]
 
 
-class MAF(nn.Module):
+class VDMAF(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
-        self.made = MADE(input_dim, hidden_dim)
+        self.made = VDMADE(input_dim, hidden_dim)
 
     def forward(self, z, ldj, reverse=False):
         shift, log_scale = self.made(z)
@@ -43,7 +43,41 @@ class MAF(nn.Module):
 
         return z, ldj
 
-class Dequantization(nn.Module):
+class VDMLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class VDShiftScaleFlow(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super().__init__()
+        self.scale_net = VDMLP(input_dim, hidden_dim, 1)
+        self.shift_net = VDMLP(input_dim, hidden_dim, 1)
+
+    def forward(self, z, ldj, reverse=False):
+        scale = self.scale_net(z)
+        shift = self.shift_net(z)
+
+        if not reverse:
+            z = z * torch.exp(scale) + shift
+            ldj += torch.sum(scale, dim=1)
+        else:
+            z = (z - shift) * torch.exp(-scale)
+            ldj -= torch.sum(scale, dim=1)
+
+        return z, ldj
+
+class Dequantizer(nn.Module):
 
     def __init__(self, alpha=1e-5, num_cat=256):
         """
@@ -89,7 +123,7 @@ class Dequantization(nn.Module):
         ldj -= np.log(self.num_cat) * np.prod(z.shape[1:])
         return z, ldj
 
-class VariationalDequantization(Dequantization):
+class VariationalDequantizer(Dequantizer):
 
     def __init__(self, var_flows, alpha=1e-5, num_cat=256):
         """
@@ -114,72 +148,3 @@ class VariationalDequantization(Dequantization):
         ldj -= np.log(self.num_cat) * np.prod(z.shape[1:])
         return z, ldj
 
-class MADE(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.net = nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.input_dim * 2),
-        )
-
-    def forward(self, x):
-        output = self.net(x)
-        return output[..., :self.input_dim], output[..., self.input_dim:]
-
-
-class MAF(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super().__init__()
-        self.made = MADE(input_dim, hidden_dim)
-
-    def forward(self, z, ldj, reverse=False):
-        shift, log_scale = self.made(z)
-        scale = torch.exp(log_scale)
-
-        if not reverse:
-            z = scale * z + shift
-            ldj += log_scale.sum(dim=-1)
-        else:
-            z = (z - shift) / scale
-            ldj -= log_scale.sum(dim=-1)
-
-        return z, ldj
-
-class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        super().__init__()
-        self.layers = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
-        )
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class ShiftScaleFlow(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super().__init__()
-        self.scale_net = MLP(input_dim, hidden_dim, 1)
-        self.shift_net = MLP(input_dim, hidden_dim, 1)
-
-    def forward(self, z, ldj, reverse=False):
-        scale = self.scale_net(z)
-        shift = self.shift_net(z)
-
-        if not reverse:
-            z = z * torch.exp(scale) + shift
-            ldj += torch.sum(scale, dim=1)
-        else:
-            z = (z - shift) * torch.exp(-scale)
-            ldj -= torch.sum(scale, dim=1)
-
-        return z, ldj
