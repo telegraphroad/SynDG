@@ -20,7 +20,7 @@ def radial(K=16,dim=2):
 
 # Make NICE flow
 def nice(K=16,dim=2,hidden_units=64, hidden_layers=2):
-    b = torch.Tensor([1 if i % dim == 0 else 0 for i in range(2)])
+    b = torch.Tensor([1 if i % dim == 0 else 0 for i in range(dim)])
     flows = []
     for i in range(K):
         lay = [dim] + [hidden_units]*hidden_layers + [dim]
@@ -34,7 +34,7 @@ def nice(K=16,dim=2,hidden_units=64, hidden_layers=2):
 
 # Make RealNVP flow
 def rnvp(K=16,dim=2,hidden_units=64, hidden_layers=2):
-    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(2)])
+    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(dim)])
     flows = []
     for i in range(K):
         lay = [dim] + [hidden_units]*hidden_layers + [dim]
