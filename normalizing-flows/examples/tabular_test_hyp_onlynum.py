@@ -16,6 +16,7 @@ import copy
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 import gc
+from normflows.experiments.flowslib import planar, radial, nice, rnvp, nsp, iaf
 
 class MyDataset(Dataset):
     def __init__(self, dataframe):

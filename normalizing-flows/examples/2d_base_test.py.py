@@ -37,7 +37,7 @@ enable_cuda = True
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 target = nf.distributions.TwoMoons()
 target = nf.distributions.StudentTDistribution(2,df=2.)
-target = nf.distributions.NealsFunnel(v1shift=3.,v2shift=0.)
+target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
 _l = target.sample(10000).median().item()
 
 # Define 2D Gaussian base distribution
@@ -59,7 +59,7 @@ base = nf.distributions.base.DiagGaussian(2)
 base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
 base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
 trnbl = True
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=25, rand_p=True, noise_scale=0.2, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, noise_scale=0.5, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
 #base = nf.distributions.base.DiagGaussian(2)
 
 #base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
@@ -136,15 +136,15 @@ plt.show()
 
 # %%
 # Train model
-max_iter = 5000
+max_iter = 8000
 num_samples = 2 ** 11
 show_iter = 250
 
 
 loss_hist = np.array([])
 
-#optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
+#optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
 max_norm = 0.5
 adjust_rate = 0.01
 model.sample(10**4)
@@ -160,7 +160,7 @@ for it in tqdm(range(max_iter)):
     
     # Compute loss
     try:
-        loss = model.forward_kld(x, robust=True)    
+        loss = model.forward_kld(x, robust=False)    
         # l2_lambda = 0.001  # The strength of the regularization
         # l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
         # loss = loss + l2_lambda * l2_norm
@@ -378,7 +378,7 @@ num_components = mixture_weights.shape[-1]
 # Create a tensor to store the probabilities for each component on each sample
 probabilities = []
 i = 0
-
+import copy
 probabilities = []
 for i in range(model.q0.n_modes):
     loc_i = model.q0.loc[i]
@@ -403,7 +403,7 @@ probs = probabilities.detach().cpu().numpy()
 # Assuming oprobs and mprobs are numpy arrays
 oprobs = target.log_prob(_s).exp().detach().cpu().numpy()
 mprobs = probs
-nbins = 30
+nbins =30
 # Create 100 bins between min and max of oprobs
 bins = np.linspace(np.min(oprobs), np.max(oprobs), nbins+1)
 
@@ -419,12 +419,33 @@ for i in range(num_components):
         if np.any(indices == j + 1):
             mean_probs[j, i] = np.mean(mprobs[indices == j + 1, i])
 
+mp = copy.deepcopy(mean_probs)
+max_indices = np.argmax(mean_probs, axis=1)
+for i in range(mean_probs.shape[0]):
+    for j in range(mean_probs.shape[1]):
+        if j!=max_indices[i]:
+            mean_probs[i,j]=np.nan
+# import numpy as np
+
+# Assuming mean_probs is your 50x10 array
+# Create a new array filled with NaN values
+# nan_array = np.empty_like(mean_probs)
+# nan_array[:] = np.nan
+
+# # Find the maximum value in each row
+# max_values = np.nanmax(mean_probs, axis=1)
+
+# # Create a boolean mask where only the maximum values are True
+# mask = mean_probs == max_values[:, np.newaxis]
+
+# # Use the mask to select the maximum values from mean_probs
+# mean_probs = np.where(mask, mean_probs, nan_array)
 # Flattening the data for scatter plot
 x, y = np.meshgrid(range(nbins), range(num_components))
 x, y, c = x.flatten(), y.flatten(), mean_probs.flatten()
 
 # Create a 2D plot
-fig, ax = plt.subplots(figsize=(10, 10))
+fig, ax = plt.subplots(figsize=(30, 30))
 
 # Use a scatter plot with circle color intensity reflecting the mean probability
 scatter = ax.scatter(x, y, c=c, cmap='viridis', alpha=0.6)
@@ -437,4 +458,22 @@ plt.show()
 # %%
 
 
+# Create x, y coordinates using meshgrid
+x, y = np.meshgrid(range(nbins), range(num_components))
+x, y = x.flatten(), y.flatten()
+
+# Filter x, y, and c arrays to keep only the highest probability components
+x_filtered = x[max_indices]
+y_filtered = y[max_indices]
+c_filtered = mean_probs[range(nbins), max_indices]
+
+# Create a 2D plot
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# Use a scatter plot with circle color intensity reflecting the mean probability
+scatter = ax.scatter(x_filtered, y_filtered, c=c_filtered, cmap='viridis', alpha=0.6)
+
+plt.show()
+
 # %%
+mean_probs.shape# %%
