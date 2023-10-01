@@ -121,7 +121,7 @@ class GeneralizedGaussianMixture(BaseDistribution):
     device (str, optional): Device to which tensors will be moved. Default is 'cuda'.
     """
 
-    def __init__(self, n_modes, dim, loc=0., scale=1., p=2., rand_p=True, noise_scale=0.01, weights=None, trainable_loc=True, trainable_scale=True, trainable_p=True, trainable_weights=True, device='cuda'):
+    def __init__(self, n_modes, dim, loc=0., scale=1., p=2., rand_p=True, noise_scale=0.01, weights=None, trainable_loc=True, trainable_scale=True, trainable_p=True, trainable_weights=True, ds=None, device='cuda'):
         super().__init__()
         with torch.no_grad():
             self.n_modes = n_modes
@@ -129,7 +129,10 @@ class GeneralizedGaussianMixture(BaseDistribution):
             self.device = device
 
             # Initialize location, scale and shape parameters
-            loc = np.zeros((self.n_modes, self.dim)) + loc
+            if ds is None:
+                loc = np.zeros((self.n_modes, self.dim)) + loc
+            else:
+                loc = np.tile(ds.calculate_feature_means(),(n_modes,1)) + loc
             scale = np.zeros((self.n_modes, self.dim)) + scale
             p = np.zeros((self.n_modes, self.dim)) + p
             if rand_p:
