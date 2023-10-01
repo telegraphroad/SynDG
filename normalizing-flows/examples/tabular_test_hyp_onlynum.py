@@ -16,8 +16,8 @@ import copy
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 import gc
-from normflows.experiments.flowslib import planar, radial, nice, rnvp, nsp, iaf
 
+from normflows.experiments.flowslib import planar, radial, nice, rnvp, nsp, iaf, residual
 class MyDataset(Dataset):
     def __init__(self, dataframe):
         self.dataframe = dataframe
@@ -100,11 +100,11 @@ tests_arr = []
 _closs = 1e10
 _stalecounter = 0
 import sys
-
 _nl = int(sys.argv[1])
 _w = int(sys.argv[2])
 _ml = int(sys.argv[3])
 lr = float(sys.argv[4])
+fltyp = str(sys.argv[5])
 
 # for nl in list(reversed([8,16,32,48,64,80,100,120,140,180,220,280,320])):
 for nl in [_nl]:
@@ -130,17 +130,23 @@ for nl in [_nl]:
                 latent_size = 3
                 b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
                 flows = []
-                for i in range(num_layers):
-                    lay = [latent_size] + [w]*ml + [latent_size]
-                    s = nf.nets.MLP(lay, init_zeros=True)
+                # for i in range(num_layers):
+                #     lay = [latent_size] + [w]*ml + [latent_size]
+                #     s = nf.nets.MLP(lay, init_zeros=True)
 
                     
-                    t = nf.nets.MLP(lay, init_zeros=True)
-                    if i % 2 == 0:
-                        flows += [nf.flows.MaskedAffineFlow(b, t, s)]
-                    else:
-                        flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
-                    flows += [nf.flows.ActNorm(latent_size)]
+                #     t = nf.nets.MLP(lay, init_zeros=True)
+                #     if i % 2 == 0:
+                #         flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+                #     else:
+                #         flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+                #     flows += [nf.flows.ActNorm(latent_size)]
+                if fltyp == 'nsp':
+                    flows = nsp(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
+                elif fltyp == 'rnvp':
+                    flows = rnvp(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
+                elif fltyp == 'residual':
+                    flows = residual(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
                 base = nf.distributions.base.DiagGaussian(latent_size)
                 trnbl = True
                 base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, noise_scale=0.05, dim=latent_size,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
@@ -153,7 +159,7 @@ for nl in [_nl]:
 
 
 
-                max_iter = 35
+                max_iter = 100
                 num_samples = 2 ** 12
                 show_iter = 250
 
@@ -258,7 +264,7 @@ for nl in [_nl]:
                 torch.cuda.empty_cache()
                 gc.collect()
 
-                del dataloader
+                
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -266,7 +272,7 @@ for nl in [_nl]:
                 torch.cuda.empty_cache()
                 gc.collect()
 
-                del model, optimizer, flows, base
+                #del model, optimizer, flows, base
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -274,43 +280,6 @@ for nl in [_nl]:
                 torch.cuda.empty_cache()
                 gc.collect()
 
-                b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
-                flows = []
-                for i in range(num_layers):
-                    lay = [latent_size] + [w]*ml + [latent_size]
-                    s = nf.nets.MLP(lay, init_zeros=True)
-
-                    
-                    t = nf.nets.MLP(lay, init_zeros=True)
-                    if i % 2 == 0:
-                        flows += [nf.flows.MaskedAffineFlow(b, t, s)]
-                    else:
-                        flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
-                    flows += [nf.flows.ActNorm(latent_size)]
-                base = nf.distributions.base.DiagGaussian(latent_size)
-                trnbl = True
-                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, noise_scale=0.05, dim=latent_size,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
-
-                categoricals = {}
-                categoricals[3] = 7
-                categoricals[4] = 4
-                model = nf.NormalizingFlow(base, flows)
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-                gc.collect()
-
-                model = model.to(device)
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-                gc.collect()
-
-                model.load_state_dict(best_params)
                 model.eval()
                 from scipy.stats import ks_2samp, chi2_contingency
                 ds_gn = model.sample(n_samples)[0].detach().cpu().numpy()
@@ -340,7 +309,7 @@ for nl in [_nl]:
                 plt.tight_layout()
                 plt.show()    
                 print('plotted!')
-                plt.savefig(f'./hist_{nl}_{w}_{ml}_{lr}.png')
+                plt.savefig(f'./hist_{nl}_{w}_{ml}_{lr}_{fltyp}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -422,23 +391,6 @@ for nl in [_nl]:
 # # %%
 
 # %%
-import numpy as np
-import pandas as pd
-from scipy.stats import t
-import torch
-import numpy as np
-from matplotlib import gridspec
-import copy
 
-import normflows as nf
-
-from matplotlib import pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-import copy
-from tqdm import tqdm
-from torch.utils.data import Dataset, DataLoader
-import gc
-from normflows.experiments.flowslib import planar, radial, nice, rnvp, nsp, iaf
 
 # %%
