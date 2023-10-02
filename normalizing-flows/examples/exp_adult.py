@@ -37,6 +37,7 @@ import pandas as pd
 import torch
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import Dataset
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 class CSVDataset(Dataset):
     def __init__(self, file_path, categorical_column_names, transform=None):
@@ -116,7 +117,7 @@ except:
     _nl = 4
     _w = 128
     _ml = 4
-    lr = 1e-5
+    lr = 1e-1
     fltyp = 'rnvp'
 # for nl in list(reversed([8,16,32,48,64,80,100,120,140,180,220,280,320])):
 for nl in [_nl]:
@@ -161,7 +162,7 @@ for nl in [_nl]:
                     flows = residual(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
                 base = nf.distributions.base.DiagGaussian(latent_size)
                 trnbl = True
-                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.1, dim=latent_size,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
+                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.5, dim=latent_size,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
 
                 #model = nf.NormalizingFlow(base, flows)
                 model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=4, vardeq_flow_type='shiftscale')
@@ -177,6 +178,8 @@ for nl in [_nl]:
                 loss_hist = np.array([])
 
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
+                scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+
                 #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
                 max_norm = 0.5
                 adjust_rate = 0.01
@@ -213,7 +216,10 @@ for nl in [_nl]:
                                 with torch.no_grad():
                                     model.load_state_dict(best_params)
                     
-                    print(f'Epoch {it+1}, Iter {i+1}, Loss: {bestloss:.6f}')
+                    scheduler.step(bestloss)
+                    print(f"Epoch {it+1}, Iter {i+1}, Loss: {bestloss:.6f}, Learning Rate - {optimizer.param_groups[0]['lr']:.6f}")
+                    
+
                     if _closs > bestloss:
                         _closs = bestloss
                         _stalecounter = 0
@@ -226,6 +232,7 @@ for nl in [_nl]:
                         print('STALLED')
                         _stalecounter = 0
                         break
+                    
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
