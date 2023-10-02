@@ -38,6 +38,24 @@ import torch
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import Dataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import pandas as pd
+import numpy as np
+from skbio import DistanceMatrix
+from skbio.stats.distance import permanova
+import gower
+import pandas as pd
+import numpy as np
+from scipy.stats import chi2_contingency, ks_2samp, mannwhitneyu
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+import pandas as pd
+import pandas as pd
+import numpy as np
+import gower
+from skbio.stats.distance import permanova
+from skbio import DistanceMatrix
+from sklearn.ensemble import GradientBoostingClassifier
 
 class CSVDataset(Dataset):
     def __init__(self, file_path, categorical_column_names, transform=None):
@@ -228,7 +246,7 @@ for nl in [_nl]:
                             _stalecounter += 5
                         else:
                             _stalecounter += 1
-                    if _stalecounter > 250:
+                    if _stalecounter > 25:
                         print('STALLED')
                         _stalecounter = 0
                         break
@@ -270,10 +288,166 @@ for nl in [_nl]:
                 torch.save(model,f'./model_{nl}_{w}_{ml}_{lr}_{fltyp}.pt')
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
+                ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
+                ds_gn.dropna(inplace=True)
+                ds_gn.dropna(axis=1, inplace=True)
+                dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
+                ds_gn = ds_gn.astype(dict_dtype)
+
                 ds_gn.to_csv(f'./gen_{nl}_{w}_{ml}_{lr}_{fltyp}.csv')
+
+                nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
+
+                # Count rows where at least one value is `NaN` or `inf`
+                count = nan_or_inf_df.any(axis=1).sum()
+                ds_gn = ds_gn.dropna()
                 
                 
+                # categorical_features = [False, True,False,True,True,True,True,True,True,True,False,False,False,True,True]
+                # gower_dist = gower.gower_matrix(pd.concat([my_dataset.data, ds_gn], ignore_index=True), cat_features=categorical_features)
+                # # We have concatenated the original and synthetic datasets. 
+                # # So, the first half of rows represent the original dataset, and the second half represent the synthetic one.
+                # grouping = np.array(['Original']*len(my_dataset.data) + ['Synthetic']*len(ds_gn))
+
+                # # Create a DistanceMatrix instance
+                # dm = DistanceMatrix(gower_dist)
+
+                # # Perform the PERMANOVA test
+                # result = permanova(dm, grouping)
+
+                # # Print the results
+                # print(result)
+
+                # Assuming my_dataset and ds_gn are your DataFrames
+                categorical = [1,3,4,5,6,7,8,9,13,14]
+                numerical = [col for col in range(len(my_dataset.data.columns)) if col not in categorical]
+
+                # Initialize an empty list to store the results
+                results = []
+
+                # Perform the tests for each categorical feature
+                for feature in categorical:
+                    # Create a contingency table
+                    crosstab = pd.crosstab(my_dataset.data.iloc[:, feature], ds_gn.iloc[:, feature])
+                    
+                    # Perform Chi-square test
+                    try:
+                        chi2, p, dof, expected = chi2_contingency(crosstab)
+                        chi2_interpretation = 'Dependent' if p < 0.05 else 'Independent' #note:interpret "dependent" as "non-similar" and "independent" as "similar"
+                    except Exception as e:
+                        print(f"Chi-square test failed for feature {feature}: {str(e)}")
+
+                    # Append the results to the list
+                    results.append([feature, "Chi-square", chi2, p, chi2_interpretation])
+
+                # Perform the tests for each numerical feature
+                for feature in numerical:
+                    # Calculate the KS test
+                    try:
+                        ks_stat, p_ks = ks_2samp(my_dataset.data.iloc[:, feature].dropna(), ds_gn.iloc[:, feature].dropna())
+                        interpretation_ks = 'Similar' if p_ks > 0.05 else 'Not similar'
+                    except Exception as e:
+                        print(f"KS test failed for feature {feature}: {str(e)}")
+
+                    # Append the results to the list
+                    results.append([feature, "KS", ks_stat, p_ks, interpretation_ks])
+                    
+                    # Calculate the Mann-Whitney U test
+                    try:
+                        u_stat, p_u = mannwhitneyu(my_dataset.data.iloc[:, feature].dropna(), ds_gn.iloc[:, feature].dropna(), alternative='two-sided')
+                        interpretation_u = 'Similar' if p_u > 0.05 else 'Not similar'
+                    except Exception as e:
+                        print(f"Mann-Whitney U test failed for feature {feature}: {str(e)}")
+
+                    # Append the results to the list
+                    results.append([feature, "Mann-Whitney", u_stat, p_u, interpretation_u])
+
+                # Convert the results into a DataFrame
+                results_df = pd.DataFrame(results, columns=['Feature', 'Test', 'Statistic', 'P-value', 'Interpretation'])
+
+                # Print the results
+                print(results_df)  
+                results_df.to_csv(f'./stattestresults_{nl}_{w}_{ml}_{lr}_{fltyp}.csv', index=False)
+
+                # Assuming my_dataset and ds_gn are your DataFrames
+                # Concatenate your DataFrames
+                data = pd.concat([my_dataset.data, ds_gn])
+
+                # Compute Gower's distance
+                gower_dist = gower.gower_matrix(data)
+
+                # Create a list of labels: '0' for my_dataset and '1' for ds_gn
+                labels = ['0'] * len(my_dataset.data) + ['1'] * len(ds_gn)
+
+                # Perform PERMANOVA
+                dm = DistanceMatrix(gower_dist)
+                results = permanova(dm, grouping=labels, permutations=999)
+                #save results using pandas:
+                results_df = pd.DataFrame([results], columns=['PERMANOVA'])
+                results_df.to_csv(f'permanova_{nl}_{w}_{ml}_{lr}_{fltyp}.csv', index=False)
+                print(results)                
                 # List of numerical and categorical feature names
+
+                # Assuming real_data and synthetic_data are your dataframes
+                ds_gn['is_synthetic'] = 0
+                my_dataset.data['is_synthetic'] = 1
+
+                combined_data = pd.concat([ds_gn, my_dataset.data])
+                combined_data.replace([np.inf, -np.inf], np.nan, inplace=True)
+                combined_data.dropna(inplace=True)
+                combined_data.dropna(axis=1, inplace=True)
+                
+                X = combined_data.drop('is_synthetic', axis=1)
+                y = combined_data['is_synthetic']
+
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+                model = GradientBoostingClassifier()
+
+                model.fit(X_train, y_train)
+
+                y_pred = model.predict_proba(X_test)[:,1]
+
+                score = roc_auc_score(y_test, y_pred)
+                #save score using pandas:
+                score_df = pd.DataFrame([score], columns=['AUC-ROC'])
+                score_df.to_csv(f'detectionscore_{nl}_{w}_{ml}_{lr}_{fltyp}.csv', index=False)
+                
+
+                print(f"AUC-ROC score: {score}")                              
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+
+                # Assuming real_data and synthetic_data are your dataframes
+                feature_names = my_dataset.data.columns
+
+                # List of categorical features
+                categorical_features = [1,3,4,5,6,7,8,9,13,14]
+
+                fig, axs = plt.subplots(5, 3, figsize=(15, 20))
+
+                for i, ax in enumerate(axs.flatten()):
+                    if i < len(feature_names):
+                        feature_name = feature_names[i]
+
+                        # If the feature is categorical
+                        if i in categorical_features:
+                            real_counts = my_dataset.data[feature_name].value_counts()
+                            synthetic_counts = ds_gn[feature_name].value_counts()
+                            all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
+                            
+                            ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
+                            ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
+                        else:
+                            sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
+                            sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
+
+                        ax.set_title(feature_name)
+                        ax.legend()
+
+                plt.tight_layout()
+                plt.show()
+                plt.savefig(f'./gendist_{nl}_{w}_{ml}_{lr}_{fltyp}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -283,5 +457,6 @@ for nl in [_nl]:
                 gc.collect()
             except Exception as e:
                 print(e)
+                print(e.with_traceback())
                 pass
 
