@@ -1,55 +1,64 @@
 import torch
+import torch.nn as nn
 
-def tukey_biweight_estimator(tensor, max_iter=100, tol=1e-6):
+def tukey_biweight_estimator(tensor, initial_guess=None, c=1.345, max_iter=100, tol=1e-6):
     """
-    This function calculates the Tukey's Biweight (or bisquare) estimator for a given tensor.
-    Tukey's Biweight estimator is a robust statistic providing a resistant measure of central tendency.
-    It's less sensitive to outliers compared to the mean or median.
-    
-    For more information, see:
-    - Wikipedia: https://en.wikipedia.org/wiki/Bisquare_estimation
-    
+    Compute the Huber M-estimator for a 1D tensor.
+
     Parameters:
-    - tensor: The input tensor.
-    - max_iter: The maximum number of iterations for the weight adjustment process (default: 100).
-    - tol: A small threshold for the convergence of the estimator (default: 1e-6).
-    
+    - tensor: 1D tensor, the input data
+    - initial_guess: float, initial guess for the estimator
+    - c: float, tuning constant (default is 1.345)
+    - max_iter: int, maximum number of iterations (default is 100)
+    - tol: float, convergence tolerance (default is 1e-6)
+
     Returns:
-    - median: The Tukey's Biweight estimator of the input tensor.
+    - mu: float, the Huber M-estimator of the data
     """
-    
-    # Initialize the median as the actual median of the tensor
-    median = tensor.median()
-    
-    # Iterate to adjust the weights and update the median until the change in the median from one iteration to the next is smaller than a small tolerance value
+    if initial_guess is None:
+        mu = tensor.median()
+    else:
+        mu = initial_guess
+
     for _ in range(max_iter):
-        # Make a copy of the current median
-        prev_median = median.clone()
-        
-        # Compute the residuals as the difference between the tensor and the median
-        diff = tensor - median
-        
-        # Compute the Median Absolute Deviation (MAD) of the residuals. MAD is a robust measure of scale (similar to standard deviation for normal distributions).
-        mad = torch.median(torch.abs(diff))
-        
-        # Compute the standardized residuals (u-values) by dividing them by 6 times the MAD. This is in line with the usual practice for Tukey's Biweight estimator, where a value of 6 for the tuning constant provides approximately 95% efficiency for normally distributed data. 
-        u = diff / (6.0 * mad)
-        
-        # Identify the residuals that are within the 6 MAD range
-        mask = (torch.abs(u) <= 1.0)
-        
-        # Compute the bisquare weights for the residuals within the 6 MAD range
-        weights = (1 - u[mask].square()) ** 2
-        
-        # Normalize the weights so they add up to 1
-        weights /= weights.sum()
-        
-        # Compute the weighted average of the tensor values within the 6 MAD range
-        median = (weights * tensor[mask]).sum()
-        
-        # If the change in the median is smaller than the tolerance, stop iterating
-        if torch.abs(prev_median - median) < tol:
+        diffs = tensor - mu
+        weights = torch.where(torch.abs(diffs) <= c, torch.ones_like(tensor), c / torch.abs(diffs))
+        mu_next = torch.sum(weights * tensor) / torch.sum(weights)
+
+        if torch.abs(mu - mu_next) < tol:
             break
-    
-    # Return the Tukey's Biweight estimator
-    return median
+
+        mu = mu_next
+
+    return mu
+
+
+def geometric_median_of_means_pyt(samples, num_buckets, max_iter=100, eps=1e-5):
+    """
+    Compute the geometric median of means by placing `samples`
+    in num_buckets using Weiszfeld's algorithm
+    """
+    if len(samples.shape) == 1:
+        samples = samples.reshape(-1, 1)
+    bucketed_means = torch.stack(
+        [torch.mean(val, dim=0) for val in torch.split(samples, num_buckets)]
+    )
+
+    if bucketed_means.shape[0] == 1:
+        return bucketed_means.squeeze()  # when sample size is 1, the only sample is the median
+
+    # This reduces the chance that the initial estimate is close to any
+    # one of the data points
+    gmom_est = torch.mean(bucketed_means, dim=0)
+
+    for i in range(max_iter):
+        weights = 1 / torch.norm(bucketed_means - gmom_est, dim=1, p=2)[:, None]
+        old_gmom_est = gmom_est
+        gmom_est = (bucketed_means * weights).sum(dim=0) / weights.sum()
+        if (
+            torch.norm(gmom_est - old_gmom_est, p=2) / torch.norm(old_gmom_est, p=2)
+            < eps
+        ):
+            break
+
+    return gmom_est

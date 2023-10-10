@@ -16,4 +16,4 @@ from .optim import clear_grad, set_requires_grad, update_lipschitz
 
 from .preprocessing import Logit, Jitter, Scale
 
-from .utils import tukey_biweight_estimator
+from .utils import tukey_biweight_estimator,geometric_median_of_means_pyt

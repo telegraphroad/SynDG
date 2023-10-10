@@ -55,7 +55,7 @@ class Funnel(Target):
 
 
 models = {}
-target = Funnel(1000).cuda()
+target = Funnel(0).cuda()
 
 #target = nf.distributions.base_extended.GeneralizedGaussianDistribution(torch.tensor([0.,0.],device='cuda'), torch.tensor([1.,1.],device='cuda'),torch.tensor([1.,3.],device='cuda'))
 trnbl = True
@@ -115,16 +115,16 @@ device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else '
 
 
 if True:
-    for beta in [0,1,2,3,4,5,6,7,8,9,10,11,15,20,30,35,50,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,960,970,980,985,990,991,992,993,994,995,996,997,998,999,1000]:
+    for beta in [0]:#[0,1,2,3,5,7,9,11,15,20,30,35,50,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,960,970,980,985,991,993,995,997,999,1000]:
         models = {}
-        for _m in ['geomed','med','tukey']:
+        for _m in ['med','tukey']:
             for _r in [True,False]:
                 for _b in ['Gaussian','Generalized Gaussian', 'Mixtures of Generalized Gaussians']:
                     print('==================',_b,_r,_m)
                     #target = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=1, rand_p=False, noise_scale=0.2, dim=2,loc=0,scale=1.,p=_betat,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
                     #target = nf.distributions.Funnel(v1shift=3.,v2shift=0.)
                     trnbl = True
-                    target = Funnel(1000).cuda()
+                    target = Funnel(beta).cuda()
 
 
                     # target = Funnel()
@@ -157,7 +157,7 @@ if True:
                     elif _b == 'Generalized Gaussian':
                         base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=1, rand_p=True, noise_scale=0.2, dim=2,loc=0.,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl).cuda()
                     # 
-                    if _r == False and _m not in ['med']:
+                    if _r == False and _m not in ['tukey']:
                         print('PASSING ================== ',_b,_r,_m)
                         break
 
@@ -229,14 +229,14 @@ if True:
 
                     # %%
                     # Train model
-                    max_iter = 10000
-                    num_samples = 2 ** 12
+                    max_iter = 3000
+                    num_samples = 2 ** 10
                     show_iter = 20000
 
 
                     loss_hist = np.array([])
 
-                    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=5e-5)
+                    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
                     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=50, verbose=True)
                     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
                     max_norm = 0.5
@@ -252,7 +252,7 @@ if True:
                         optimizer.zero_grad()
                         
                         # Get training samples
-                        print('=====================',device)
+                        
                         x = target.sample(num_samples).to(device)
                         
                         # Compute loss
@@ -284,13 +284,22 @@ if True:
                                 optimizer.step()
                                 import copy
                                 with torch.no_grad():
-                                    if loss.item()<bestloss:
+                                    if round(loss.item(),6)<round(bestloss,6):
+                                        print('bestloss--------------------------------->>>>>>>>>>>>>>>>>>>',bestloss,loss.item())
                                         model.log_prob(zz).to('cpu').view(*xx.shape)
                                         bestloss = copy.deepcopy(loss.item())
                                         best_params = copy.deepcopy(model.state_dict())
                                         stallcntr = 0
                                     else:
                                         stallcntr+=1
+                                        print('stallcntr--------------------------------->>>>>>>>>>>>>>>>>>>',stallcntr)
+                                if stallcntr >250:
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    break
+
                                 scheduler.step(bestloss)
                             loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
                             print(f'+++++++++++++ BEST LOSS: {bestloss},{_b},{_r},{_m},{errcntr}')
@@ -327,18 +336,30 @@ if True:
                                     plt.plot(loss_hist, label='loss')
                                     plt.legend()
                                     plt.show()
+                                if stallcntr >250:
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    break
 
 
                                 print(f'+++++++++++++ BEST LOSS: {bestloss}')
                                     
 
                         except Exception as e:
-                            print(e.with_traceback())
+                            print(e)
                             if True:
                                 print('error',e)
                                 with torch.no_grad():
 
                                     model.load_state_dict(best_params)
+                                if stallcntr >250:
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    print('**************************BREAK**********************')
+                                    break
 
                                 errcntr+=1
                                 if errcntr == 100:
@@ -369,12 +390,14 @@ if True:
             zz = zz.to(device)
 
 
+
+            del prob,log_prob
             sns.set_style("darkgrid")
             print(models.keys())
             fig, axs = plt.subplots(5, 2, figsize=(10, 25))
             i,j = 0,0
             for _b in ['Gaussian','Generalized Gaussian','Mixtures of Generalized Gaussians']:
-                model,base,target = models[_b,False,"med"]
+                model,base,target = models[_b,False,"tukey"]
                 log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
                 prob = torch.exp(log_prob)
                 prob[torch.isnan(prob)] = 0
@@ -408,7 +431,7 @@ if True:
             fig, axs = plt.subplots(5, 2, figsize=(10, 25))
             i,j = 0,0
             for _b in ['Gaussian','Generalized Gaussian','Mixtures of Generalized Gaussians']:
-                model,base,target = models[_b,False,"med"]
+                model,base,target = models[_b,False,"tukey"]
                 log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
                 prob = torch.exp(log_prob)
                 prob[torch.isnan(prob)] = 0
@@ -436,41 +459,6 @@ if True:
 
             plt.savefig(f'ablation_{beta}_med.png')
 
-
-            del prob,log_prob
-            sns.set_style("darkgrid")
-            print(models.keys())
-            fig, axs = plt.subplots(5, 2, figsize=(10, 25))
-            i,j = 0,0
-            for _b in ['Gaussian','Generalized Gaussian','Mixtures of Generalized Gaussians']:
-                model,base,target = models[_b,False,"med"]
-                log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
-                prob = torch.exp(log_prob)
-                prob[torch.isnan(prob)] = 0
-                prob[torch.isinf(prob)] = 0
-                axs[i, j].pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
-                axs[i, j].set_aspect('equal', 'box')
-                axs[i, j].tick_params(axis='x', labelsize=14)  # Increase x-ticks font size
-                axs[i, j].tick_params(axis='y', labelsize=14)  # Increase y-ticks font size
-                
-                i+=1
-
-            i,j = 0,1
-            for _b in ['Gaussian','Generalized Gaussian','Mixtures of Generalized Gaussians']:
-                model,base,target = models[_b,True,"geomed"]
-                log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
-                prob = torch.exp(log_prob)
-                prob[torch.isnan(prob)] = 0
-                prob[torch.isinf(prob)] = 0
-                axs[i, j].pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
-                axs[i, j].set_aspect('equal', 'box')
-                axs[i, j].tick_params(axis='x', labelsize=14)  # Increase x-ticks font size
-                axs[i, j].tick_params(axis='y', labelsize=14)  # Increase y-ticks font size
-                
-                i+=1
-
-            plt.savefig(f'ablation_{beta}_geomed.png')
-            models = {}
 
             #target = nf.distributions.base_extended.GeneralizedGaussianDistribution(torch.tensor([0.,0.],device='cuda'), torch.tensor([1.,1.],device='cuda'),torch.tensor([1.,3.],device='cuda'))
             trnbl = True

@@ -126,7 +126,7 @@ class NormalizingFlow(nn.Module):
             if rmethod == 'geomed':
                 return -compute_geometric_median(-log_q.cpu()).median.cuda()
             elif rmethod == 'med':
-                return -torch.median(log_q)
+                return -utils.geometric_median_of_means_pyt(log_q,num_buckets = 512)
             elif rmethod == 'tukey':
                 return -utils.tukey_biweight_estimator(log_q)
         else:
