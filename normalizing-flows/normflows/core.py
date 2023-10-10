@@ -124,7 +124,7 @@ class NormalizingFlow(nn.Module):
         log_q += self.q0.log_prob(z)
         if robust:
             if rmethod == 'geomed':
-                return -compute_geometric_median(-log_q).median
+                return -compute_geometric_median(-log_q.cpu()).median.cuda()
             elif rmethod == 'med':
                 return -torch.median(log_q)
             elif rmethod == 'tukey':
