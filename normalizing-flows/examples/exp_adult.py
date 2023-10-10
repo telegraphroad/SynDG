@@ -131,12 +131,15 @@ try:
     _ml = int(sys.argv[3])
     lr = float(sys.argv[4])
     fltyp = str(sys.argv[5])
+    rbst = bool(sys.argv[6])
 except:
     _nl = 4
     _w = 128
     _ml = 4
     lr = 1e-1
     fltyp = 'rnvp'
+    rbst = False
+    print('Manual params!!!!')
 # for nl in list(reversed([8,16,32,48,64,80,100,120,140,180,220,280,320])):
 for nl in [_nl]:
     for w in [_w]:
@@ -180,7 +183,7 @@ for nl in [_nl]:
                     flows = residual(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
                 base = nf.distributions.base.DiagGaussian(latent_size)
                 trnbl = True
-                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.5, dim=latent_size,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
+                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.5, dim=latent_size,loc=list(my_dataset.data.median()),scale=list(my_dataset.data.std()),p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
 
                 #model = nf.NormalizingFlow(base, flows)
                 model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=4, vardeq_flow_type='shiftscale')
@@ -188,8 +191,8 @@ for nl in [_nl]:
 
 
 
-                max_iter = 100
-                num_samples = 2 ** 12
+                max_iter = 10000
+                num_samples = 2 ** 10
                 show_iter = 250
 
 
@@ -211,7 +214,7 @@ for nl in [_nl]:
                         #x = torch.stack(features).to(device)
                         x = features.to(device)
                         try:
-                            loss = model.forward_kld(x, robust=False)    
+                            loss = model.forward_kld(x, robust=rbst,rmethod='geomed')    
                             # l2_lambda = 0.001  # The strength of the regularization
                             # l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
                             # loss = loss + l2_lambda * l2_norm
@@ -285,7 +288,7 @@ for nl in [_nl]:
                 model.eval()
                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./model_{nl}_{w}_{ml}_{lr}_{fltyp}.pt')
+                torch.save(model,f'./model_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}.pt')
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -295,8 +298,8 @@ for nl in [_nl]:
                 dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
                 ds_gn = ds_gn.astype(dict_dtype)
 
-                ds_gn.to_csv(f'./gen_{nl}_{w}_{ml}_{lr}_{fltyp}.csv')
-
+                ds_gn.to_csv(f'./gen_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}.csv')
+                my_dataset.data.to_csv(f'./adult_gen.csv')
                 nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
 
                 ################################################################################################## STATS
@@ -430,7 +433,7 @@ for nl in [_nl]:
 
                 plt.tight_layout()
                 plt.show()
-                plt.savefig(f'./gendist_{nl}_{w}_{ml}_{lr}_{fltyp}.png')
+                plt.savefig(f'./gendist_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()

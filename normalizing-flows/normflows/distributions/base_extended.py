@@ -185,57 +185,95 @@ class GeneralizedGaussianMixture(BaseDistribution):
         return log_p
     
 
-class MultivariateStudentT(BaseDistribution):
-    """
-    Multivariate Student's T-distribution with full covariance matrix
+# class MultivariateStudentT(BaseDistribution):
+#     """
+#     Multivariate Student's T-distribution with full covariance matrix
 
-    Parameters:
-    shape (tuple): Shape of data
-    df (float, optional): Degrees of freedom. Default is 2.0.
-    trainable (bool, optional): If True, parameters will be optimized during training. Default is True.
-    """
+#     Parameters:
+#     shape (tuple): Shape of data
+#     df (float, optional): Degrees of freedom. Default is 2.0.
+#     trainable (bool, optional): If True, parameters will be optimized during training. Default is True.
+#     """
 
-    def __init__(self, shape, df=2.0, trainable=True):
-        super().__init__()
-        if isinstance(shape, int):
-            shape = (shape,)
-        if isinstance(shape, list):
-            shape = tuple(shape)
-        self.shape = shape
-        self.n_dim = len(shape)
-        self.d = np.prod(shape)
+#     def __init__(self, shape, df=2.0, trainable=True,device='cuda'):
+#         super().__init__()
+#         if isinstance(shape, int):
+#             shape = (shape,)
+#         if isinstance(shape, list):
+#             shape = tuple(shape)
+#         self.shape = shape
+#         self.n_dim = len(shape)
+#         self.d = np.prod(shape)
+#         self.device = device    
+#         # Create parameters or buffers depending on whether they are trainable or not
+#         if trainable:
+#             self.loc = nn.Parameter(torch.zeros(1, *self.shape,device=self.device))
+#             self.log_scale = nn.Parameter(torch.zeros(1, *self.shape, *self.shape,device=self.device))
+#             self.df = nn.Parameter(torch.tensor(df,device=self.device))  # degrees of freedom
+#         else:
+#             self.register_buffer("loc", torch.zeros(1, *self.shape,device=self.device))
+#             self.register_buffer("log_scale", torch.zeros(1, *self.shape, *self.shape,device=self.device))
+#             self.register_buffer("df", torch.tensor(df,device=self.device))
 
-        # Create parameters or buffers depending on whether they are trainable or not
-        if trainable:
-            self.loc = nn.Parameter(torch.zeros(1, *self.shape))
-            self.log_scale = nn.Parameter(torch.zeros(1, *self.shape, *self.shape))
-            self.df = nn.Parameter(torch.tensor(df))  # degrees of freedom
-        else:
-            self.register_buffer("loc", torch.zeros(1, *self.shape))
-            self.register_buffer("log_scale", torch.zeros(1, *self.shape, *self.shape))
-            self.register_buffer("df", torch.tensor(1.0))
-
-    def forward(self, num_samples=1):
-        # Draw samples from a multivariate normal
-        eps = MultivariateNormal(torch.zeros(self.d), torch.eye(self.d)).sample().view(*self.shape)
+#     def forward(self, num_samples=1):
+#         # Draw samples from a multivariate normal
+#         eps = MultivariateNormal(torch.zeros(self.d,device=self.device), torch.eye(self.d,device=self.device)).sample().view(*self.shape)
         
-        # Scale and shift by loc and scale, then apply Student's T transformation
-        z = self.loc + torch.exp(self.log_scale @ eps.unsqueeze(-1)).squeeze(-1)
-        z = z / (StudentT(self.df).rsample() / ((self.df - 2) ** 0.5))
+#         # Scale and shift by loc and scale, then apply Student's T transformation
+#         print()
+#         z = self.loc + torch.exp(self.log_scale @ eps.unsqueeze(-1)).squeeze(-1)
+#         z = z / (StudentT(self.df).rsample() / ((self.df - 2) ** 0.5))
 
-        # Compute log probability
-        log_p = StudentT(self.df).log_prob(z.view(-1)).sum()
+#         # Compute log probability
+#         log_p = StudentT(self.df).log_prob(z.view(-1)).sum()
 
-        return z, log_p
+#         return z, log_p
 
-    def log_prob(self, z):
-        # Compute Student's T log probability
-        log_p = StudentT(self.df).log_prob((z - self.loc).view(-1)).sum()
-        return log_p
+#     def log_prob(self, z):
+#         # Compute Student's T log probability
+#         log_p = StudentT(self.df).log_prob((z - self.loc).view(-1)).sum()
+#         return log_p
     
 
 
+import torch
+import torch.nn as nn
+import pyro.distributions as dist
 
+import torch
+import torch.nn as nn
+import pyro.distributions as dist
+
+import torch
+import torch.nn as nn
+import pyro
+import pyro.distributions as dist
+
+class MultivariateStudentTDist(nn.Module):
+    def __init__(self, degree_of_freedom, dim, trainable=True, device='cpu'):
+        super().__init__()
+        self.dim = dim
+        self.device = device
+
+        if trainable:
+            self.loc = nn.Parameter(torch.zeros((dim,), device=self.device))
+            self.scale_tril = nn.Parameter(torch.eye(self.dim, device=self.device))
+            self.df = nn.Parameter(torch.tensor(degree_of_freedom, device=self.device))
+        else:
+            self.register_buffer("loc", torch.zeros((dim,), device=self.device))
+            self.register_buffer("scale_tril", torch.eye(self.dim, device=self.device))
+            self.register_buffer("df", torch.tensor(degree_of_freedom, device=self.device))
+
+    def forward(self, num_samples):
+        mvt = dist.MultivariateStudentT(self.df,self.loc,self.scale_tril)
+        samples = mvt.sample((num_samples,))
+        log_prob = self.log_prob(samples)
+        return samples, log_prob
+
+    def log_prob(self, samples):
+        
+        return dist.MultivariateStudentT(self.df,self.loc,self.scale_tril).log_prob(samples)
+    
 class StudentTDistribution(BaseDistribution):
     """
     Multivariate single-variate Student's T-distribution

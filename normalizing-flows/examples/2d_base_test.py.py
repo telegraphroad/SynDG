@@ -1,14 +1,11 @@
-# %% [markdown]
-# # Changing the base distribution of a flow model
-# 
-# This example shows how one can easily change the base distribution with our API.
-# First, let's look at how the normalizing flow can learn a two moons target distribution with a Gaussian distribution as the base.
-
-# %%
-# Import packages
+# %% 
+from normflows.distributions.target import *
+from torch.distributions import MultivariateNormal, Normal
+import normflows as nf
 import torch
 import numpy as np
 from matplotlib import gridspec
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 import normflows as nf
 
@@ -17,6 +14,68 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import copy
 from tqdm import tqdm
+class NealsFunnel(Target):
+    """
+    Bimodal two-dimensional distribution
+
+    Parameters:
+    prop_scale (float, optional): Scale for the distribution. Default is 20.
+    prop_shift (float, optional): Shift for the distribution. Default is -10.
+    v1shift (float, optional): Shift parameter for v1. Default is 0.
+    v2shift (float, optional): Shift parameter for v2. Default is 0.
+    """
+
+    def __init__(self, prop_scale=torch.tensor(20.), prop_shift=torch.tensor(-10.), v1shift = 0., v2shift = 0.):
+        super().__init__()
+        self.n_dims = 2
+        self.max_log_prob = 0.
+        self.v1shift = v1shift
+        self.v2shift = v2shift
+        self.register_buffer("prop_scale", prop_scale)
+        self.register_buffer("prop_shift", prop_shift)
+
+
+    def log_prob(self, z):
+        """
+        Compute the log probability of the distribution for z
+
+        Parameters:
+        z (Tensor): Value or batch of latent variable
+
+        Returns:
+        Tensor: Log probability of the distribution for z
+        """
+        v = z[:,0].cpu()
+        x = z[:,1].cpu()
+        v_like = nf.distributions.base_extended.GeneralizedGaussianDistribution(torch.tensor([0.0]).cpu(), torch.tensor([1.0]).cpu() + self.v1shift,torch.tensor([4.0]).cpu()).log_prob(v).cpu()
+        x_like = Normal(torch.tensor([0.0]).cpu(), torch.exp(0.5*v).cpu() + self.v2shift).log_prob(x).cpu()
+        return v_like + x_like
+
+
+
+target = NealsFunnel()
+grid_size = 200
+device='cuda'
+xx, yy = torch.meshgrid(torch.linspace(-3, 3, grid_size), torch.linspace(-3, 3, grid_size))
+zz = torch.cat([xx.unsqueeze(2), yy.unsqueeze(2)], 2).view(-1, 2)
+zz = zz.to(device)
+
+log_prob = target.log_prob(zz).to('cpu').view(*xx.shape)
+prob = torch.exp(log_prob)
+prob[torch.isnan(prob)] = 0
+
+plt.figure(figsize=(15, 15))
+plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+plt.gca().set_aspect('equal', 'box')
+plt.show()
+
+target.sample(10000).median(axis=0).values.cpu().detach().numpy()
+target.sample(10000).std(axis=0).cpu().detach().numpy()
+# %%
+log_prob = target.log_prob(zz.to(device))
+# %%
+# Import packages
+
 
 def compute_average_grad_norm(model):
     total_norm = 0.0
@@ -36,9 +95,17 @@ enable_cuda = True
 
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 target = nf.distributions.TwoMoons()
-target = nf.distributions.StudentTDistribution(2,df=2.)
-target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
-_l = target.sample(10000).median().item()
+target = nf.distributions.StudentTDistribution(2,df=3.)
+target = nf.distributions.base_extended.GeneralizedGaussianDistribution(torch.tensor([0.0,0.0]).cpu(), torch.tensor([1.0,1.0]).cpu(),torch.tensor([2.0,2.0]).cpu())
+# target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
+
+# target = NealsFunnel()
+try:
+    _l = target.sample(10000).median().item()
+    _l = target.sample(50000).median(axis=0).values.cpu().detach().numpy()
+
+except:
+    _l = target.sample(torch.rand(50000).size()).median(axis=0).values.cpu().detach().numpy()
 
 # Define 2D Gaussian base distribution
 loc = torch.zeros((2, 2))  # 2x2 tensor filled with 0s
@@ -46,20 +113,22 @@ scale = torch.ones((2, 2))  # 2x2 tensor filled with 1s
 p = 2.0  # Shape parameter for Gaussian
 
 # Create the 2-dimensional instance
-base3 = nf.distributions.base_extended.GeneralizedGaussianDistribution(loc, scale, p)
+# base3 = nf.distributions.base_extended.GeneralizedGaussianDistribution(loc, scale, p)
 
-base2 = nf.distributions.base.DiagGaussian(2)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=False, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
-base = nf.distributions.base.DiagGaussian(2)
-base4 = nf.distributions.GaussianMixture(n_modes=10,dim=2)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=False, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
-base = nf.distributions.base.DiagGaussian(2)
-base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+# base2 = nf.distributions.base.DiagGaussian(2)
+# base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=False, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
+# base = nf.distributions.base.DiagGaussian(2)
+# base4 = nf.distributions.GaussianMixture(n_modes=10,dim=2)
+# base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=False, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=False,trainable_scale=False,trainable_p=False,trainable_weights=False)
+# base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+# base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
+# base = nf.distributions.base.DiagGaussian(2)
+# base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
+# base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=100, rand_p=True, dim=2,loc=_l,scale=1.,p=2.,noise_scale=0.2,device=device,trainable_loc=True,trainable_scale=True,trainable_p=True,trainable_weights=True)
 trnbl = True
-base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=10, rand_p=True, noise_scale=0.5, dim=2,loc=0,scale=1.,p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, noise_scale=0.2, dim=2,loc=_l,scale=target.sample(10000).std(axis=0).cpu().detach().numpy(),p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
+base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=1, rand_p=False, noise_scale=0.2, dim=2,loc=_l,scale=target.sample(torch.rand(10000).size()).std(axis=0).cpu().detach().numpy(),p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
+
 #base = nf.distributions.base.DiagGaussian(2)
 
 #base = nf.distributions.GaussianMixture(n_modes=10,dim=2)
@@ -136,15 +205,16 @@ plt.show()
 
 # %%
 # Train model
-max_iter = 8000
-num_samples = 2 ** 11
+max_iter = 5000
+num_samples = 2 ** 12
 show_iter = 250
 
 
 loss_hist = np.array([])
 
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-6, weight_decay=1e-7)
-#optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=250, verbose=True)
+# optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
 max_norm = 0.5
 adjust_rate = 0.01
 model.sample(10**4)
@@ -213,6 +283,7 @@ for it in tqdm(range(max_iter)):
                 if loss.item()<bestloss:
                     bestloss = copy.deepcopy(loss.item())
                     best_params = copy.deepcopy(model.state_dict())
+            scheduler.step(bestloss)
         loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
         if (it + 1) % show_iter == 0:
             
