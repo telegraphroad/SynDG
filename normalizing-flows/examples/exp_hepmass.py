@@ -114,11 +114,11 @@ np.random.seed(42)
 #b = torch.Tensor([1 if i % 2 == 0 else 0 for i in [0]])
 
 #X = X.drop(['Class'],1)
-from sklearn.preprocessing import MinMaxScaler
-from collections import Counter
+# from sklearn.preprocessing import MinMaxScaler
+# from collections import Counter
 
-# Original dataset
-from normflows.utils import data_utils
+# # Original dataset
+# from normflows.utils import data_utils
 
 # X = pd.read_csv('power.csv').drop(['Unnamed: 0'],axis=1)
 
@@ -144,14 +144,6 @@ from sklearn.preprocessing import MinMaxScaler
 from collections import Counter
 
 # Original dataset
-
-data_name = 'GAS'
-
-data_mapping = {'BSDS300': data_utils.BSDS300,
-                'GAS': data_utils.GAS,
-                'MINIBOONE': data_utils.MINIBOONE,
-                'POWER': data_utils.POWER,
-                'HEPMASS': data_utils.HEPMASS}
 
 
 categorical = []
