@@ -171,6 +171,7 @@ try:
     fltyp = str(sys.argv[5])
     rbst = bool(sys.argv[6])
     vlay = int(sys.argv[7])
+    nsamp = int(sys.argv[8])
 except:
     _nl = 4
     _w = 128
@@ -179,6 +180,7 @@ except:
     fltyp = 'rnvp'
     rbst = False
     vlay = 4
+    nsamp = 512
     print('Manual params!!!!')
 # for nl in list(reversed([8,16,32,48,64,80,100,120,140,180,220,280,320])):
 for nl in [_nl]:
@@ -232,7 +234,7 @@ for nl in [_nl]:
 
 
                 max_iter = 100
-                num_samples = 2 ** 9
+                num_samples = nsamp
                 show_iter = 2500
 
 
