@@ -232,7 +232,7 @@ for nl in [_nl]:
 
 
                 max_iter = 100
-                num_samples = 2 ** 12
+                num_samples = 2 ** 14
                 show_iter = 2500
 
 
@@ -289,7 +289,7 @@ for nl in [_nl]:
                             _stalecounter += 5
                         else:
                             _stalecounter += 1
-                    if _stalecounter > 101:
+                    if _stalecounter > 15:
                         print('STALLED')
                         _stalecounter = 0
                         break
@@ -448,9 +448,9 @@ for nl in [_nl]:
                 feature_names = my_dataset.data.columns
 
                 # List of categorical features
-                categorical_features = [1,3,4,5,6,7,8,9,13,14]
+                categorical_features = []
 
-                fig, axs = plt.subplots(5, 3, figsize=(15, 20))
+                fig, axs = plt.subplots(3, 2, figsize=(15, 20))
 
                 for i, ax in enumerate(axs.flatten()):
                     if i < len(feature_names):

@@ -131,7 +131,7 @@ from normflows.utils import data_utils
 # num_samples = 2**9
 # train_loader = torch.utils.data.DataLoader(dataset, batch_size=num_samples,num_workers=4)
 # train_iter = iter(train_loader)
-latent_size = 8
+latent_size = 43
 categorical = []
 categorical_qlevels = []
 catlevels = []
@@ -297,7 +297,7 @@ for nl in [_nl]:
                             _stalecounter += 5
                         else:
                             _stalecounter += 1
-                    if _stalecounter > 101:
+                    if _stalecounter > 15:
                         print('STALLED')
                         _stalecounter = 0
                         break
@@ -456,9 +456,9 @@ for nl in [_nl]:
                 feature_names = my_dataset.data.columns
 
                 # List of categorical features
-                categorical_features = [1,3,4,5,6,7,8,9,13,14]
+                categorical_features = []
 
-                fig, axs = plt.subplots(5, 3, figsize=(15, 20))
+                fig, axs = plt.subplots(7, 6, figsize=(15, 20))
 
                 for i, ax in enumerate(axs.flatten()):
                     if i < len(feature_names):
