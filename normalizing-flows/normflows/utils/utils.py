@@ -46,6 +46,7 @@ def geometric_median_of_means_pyt(samples, num_buckets, max_iter=100, eps=1e-5):
 
     if bucketed_means.shape[0] == 1:
         return bucketed_means.squeeze()  # when sample size is 1, the only sample is the median
+    print('pyt median')
 
     # This reduces the chance that the initial estimate is close to any
     # one of the data points

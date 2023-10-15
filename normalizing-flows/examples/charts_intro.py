@@ -104,11 +104,13 @@ for _betab in [0.]:
 
             # target = NealsFunnel()
             try:
-                _l = target.sample(10000).median().item()
+                #_l = target.sample(10000).median().item()
                 _l = target.sample(50000).median(axis=0).values.cpu().detach().numpy()
+                _s = target.sample(50000).std(axis=0).cpu().detach().numpy()
 
             except:
                 _l = target.sample(torch.rand(50000).size()).median(axis=0).values.cpu().detach().numpy()
+                _s = target.sample(torch.rand(50000).size()).std(axis=0).cpu().detach().numpy()
 
             # Define 2D Gaussian base distribution
             loc = torch.zeros((2, 2))  # 2x2 tensor filled with 0s
@@ -558,7 +560,7 @@ import seaborn as sns
 
 sns.set_style("darkgrid")
 
-fig, axs = plt.subplots(3, 5, figsize=(23, 12))
+fig, axs = plt.subplots(3, 4, figsize=(16.5, 12))
 
 for _r in models:
     j = int(_r[0]) - 1 
@@ -590,14 +592,21 @@ for _r in models:
                 axs[i, 0].set_aspect('equal', 'box')
                 axs[i, 0].tick_params(axis='x', labelsize=14)  # Increase x-ticks font size
                 axs[i, 0].tick_params(axis='y', labelsize=14)  # Increase y-ticks font size
+                axs[i, j].set_xticks([])
+                axs[i, j].set_yticks([])
                 
             if j in [1, 2,3,4]:
                 axs[i, j].set_yticks([])
             
             # Remove x ticks from first and second rows
+            axs[i, j].set_xticks([])
+            axs[i, j].set_yticks([])
             if i in [0, 1]:
                 axs[i, j].set_xticks([])
                 axs[i, 0].set_xticks([])
+            axs[i, 0].set_xticks([])
+            axs[i, 0].set_yticks([])
+
         except Exception as e:
             print(torch.isnan(prob).any())
             print(torch.isinf(prob).any())
@@ -609,17 +618,18 @@ norm = plt.Normalize(0, 1)  # adjust your scale here
 sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
 
-plt.subplots_adjust(hspace=-0.1, wspace=0.04)
+plt.subplots_adjust(hspace=0.05, wspace=0.01)
+
 from matplotlib.lines import Line2D
 
-line_xpos = 0.199  # Adjust this as needed
+line_xpos = 0.263  # Adjust this as needed
 
 # Add the line to the figure
-line = Line2D([line_xpos, line_xpos], [0.038, 0.961], transform=fig.transFigure, color='red', linestyle='--',lw=3)
+line = Line2D([line_xpos, line_xpos], [0.015, 0.959], transform=fig.transFigure, color='red', linestyle='--',lw=3)
 fig.lines.append(line)
 
 titles = ["Target", "Heavy tailed GGD base", "Gaussian base", "Light tailed GGD base","Student's t base"]
-for col in range(5):
+for col in range(4):
     axs[0, col].set_title(titles[col],fontsize=23)
 
 row_labels = ["Heavy tailed GGD target", "Gaussian target", "Light tailed GGD target"]
@@ -627,8 +637,8 @@ for row in range(3):
     axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=21)
 
 plt.tight_layout()  # Automatically adjust subplot parameters to give specified padding
-cbar = fig.colorbar(sm, ax=axs, orientation='vertical',pad=0.01)
-cbar.ax.tick_params(labelsize=14)
+#cbar = fig.colorbar(sm, ax=axs, orientation='vertical',pad=0.01)
+#cbar.ax.tick_params(labelsize=14)
 
 
 # Set colorbar label and increase its font size
@@ -1063,3 +1073,229 @@ for _betab in [1.]:
             model.load_state_dict(best_params)
             models.append([_betab,_betat,_trnbl,model,base,target])
             torch.save(models,'models.pt')
+
+
+# %%
+enable_cuda = True
+
+device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
+trnbl = False
+
+for _b in ['ggd','ggd mixture','student t','gaussian']:
+    for _betab in [2.]:
+        for _vsh in [6.,4.,2.]:
+            target = nf.distributions.target_extended.NealsFunnel(v1shift=_vsh)
+            # target = nf.distributions.NealsFunnel(v1shift=0.,v2shift=0.)
+
+            # target = NealsFunnel()
+            try:
+                #_l = target.sample(10000).median().item()
+                _l = target.sample(50000).median(axis=0).values.cpu().detach().numpy()
+                _s = target.sample(50000).std(axis=0).cpu().detach().numpy()
+
+            except:
+                _l = target.sample(torch.rand(50000).size()).median(axis=0).values.cpu().detach().numpy()
+                _s = target.sample(torch.rand(50000).size()).std(axis=0).cpu().detach().numpy()
+
+            # Define 2D Gaussian base distribution
+            loc = torch.zeros((2, 2))  # 2x2 tensor filled with 0s
+            scale = torch.ones((2, 2))  # 2x2 tensor filled with 1s
+            p = 2.0  # Shape parameter for Gaussian
+
+            trnbl = True
+
+            #base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=1, rand_p=False, noise_scale=0.2, dim=2,loc=_l,scale=target.sample(50000).std(axis=0).detach().cpu().numpy(),p=_betab,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
+            #base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=1, rand_p=False, noise_scale=0.2, dim=2,loc=0.,scale=1.,p=_betab,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)
+            #base = nf.distributions.base_extended.MultivariateStudentT(shape=(2,),df=2.,trainable=False).cuda()
+            if _b == 'student t':
+                base = nf.distributions.base_extended.MultivariateStudentTDist(degree_of_freedom=2.,dim=2,trainable=True,device='cuda').cuda()
+            elif _b == 'ggd mixture':
+                trnbl = True
+                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=20, rand_p=True, noise_scale=0.5, dim=2,loc=_l,scale=_s,p=_betab,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)    
+            elif _b == 'ggd':
+                trnbl = True
+                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=1, rand_p=True, noise_scale=0.5, dim=2,loc=0,scale=1.,p=_betab,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl)    
+            elif _b == 'gaussian':
+                base = nf.distributions.base.DiagGaussian(2,trainable=trnbl).cuda()
+
+            # Define list of flows
+            num_layers = 14
+            #num_layers = 8
+            flows = []
+            latent_size = 2
+            b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+            flows = []
+            for i in range(num_layers):
+                s = nf.nets.MLP([latent_size, 128,128,128, latent_size], init_zeros=True)
+                t = nf.nets.MLP([latent_size, 128,128,128, latent_size], init_zeros=True)
+                if i % 2 == 0:
+                    flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+                else:
+                    flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+                flows += [nf.flows.ActNorm(latent_size)]
+
+
+            # Construct flow model
+            model = nf.NormalizingFlow(base, flows)
+
+
+
+            model = model.to(device)
+
+            # Define target distribution
+            def check_model_params(model):
+                for name, param in model.named_parameters():
+                    if torch.isnan(param).any() or torch.isinf(param).any():
+                        print(f'Parameter {name} has NaNs or infs')
+
+
+            # Plot target distribution
+            grid_size = 200
+            xx, yy = torch.meshgrid(torch.linspace(-3, 3, grid_size), torch.linspace(-3, 3, grid_size))
+            zz = torch.cat([xx.unsqueeze(2), yy.unsqueeze(2)], 2).view(-1, 2)
+            zz = zz.to(device)
+
+            log_prob = target.log_prob(zz).to('cpu').view(*xx.shape)
+            prob = torch.exp(log_prob)
+            prob[torch.isnan(prob)] = 0
+
+            plt.figure(figsize=(15, 15))
+            plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+            plt.gca().set_aspect('equal', 'box')
+            plt.show()
+
+            # Plot initial flow distribution
+            model.eval()
+            log_prob = model.log_prob(zz).to('cpu').view(*xx.shape)
+            model.train()
+            prob = torch.exp(log_prob)
+            prob[torch.isnan(prob)] = 0
+
+            plt.figure(figsize=(15, 15))
+            plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+            plt.gca().set_aspect('equal', 'box')
+            plt.show()
+
+            # Train model
+            max_iter = 3000
+            num_samples = 2 ** 10
+            show_iter = 250
+
+
+            loss_hist = np.array([])
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=5e-6, weight_decay=5e-7)
+            scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=250, verbose=True)
+            # optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+            max_norm = 0.5
+            adjust_rate = 0.01
+            model.sample(10**4)
+            best_params = copy.deepcopy(model.state_dict())
+            bestloss = 1e10
+            for it in tqdm(range(max_iter)):
+                # if it == 1000:
+                #     optimizer.set_lr(1e-6)
+                optimizer.zero_grad()
+                
+                # Get training samples
+                x = target.sample(num_samples).to(device)
+                
+                # Compute loss
+                try:
+                    loss = model.forward_kld(x, robust=False)    
+                    model.log_prob(zz).to('cpu').view(*xx.shape)
+                    # l2_lambda = 0.001  # The strength of the regularization
+                    # l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
+                    # loss = loss + l2_lambda * l2_norm
+                # Do backprop and optimizer step
+                    if ~(torch.isnan(loss) | torch.isinf(loss)):
+                        loss.backward()
+                        avg_grad = 0.0
+                        num_params = 0
+                        for name, param in model.named_parameters():
+                            if param.grad is not None:
+                                avg_grad += param.grad.data.abs().mean().item()
+                                num_params += 1
+                        avg_grad /= num_params
+                        
+                        avg_norm = avg_grad
+                        if avg_norm > max_norm:
+                            max_norm += adjust_rate
+                        else:
+                            max_norm -= adjust_rate
+
+                        if (it + 1) % 100 == 0:
+
+                            max_grad = 0.0
+                            min_grad = 1e10
+                            avg_grad = 0.0
+                            num_params = 0
+                            for name, param in model.named_parameters():
+                                if param.grad is not None:
+                                    max_grad = max(max_grad, param.grad.data.abs().max().item())
+                                    min_grad = min(min_grad, param.grad.data.abs().min().item())
+                                    avg_grad += param.grad.data.abs().mean().item()
+                                    num_params += 1
+                            avg_grad /= num_params
+                            print(f'Epoch {it+1}, Max Gradient: {max_grad:.6f}, Min Gradient: {min_grad:.6f}, Avg Gradient: {avg_grad:.6f}')
+
+
+                        optimizer.step()
+                        import copy
+                        with torch.no_grad():
+                            if loss.item()<bestloss:
+                                model.log_prob(zz).to('cpu').view(*xx.shape)
+                                bestloss = copy.deepcopy(loss.item())
+                                best_params = copy.deepcopy(model.state_dict())
+                        scheduler.step(bestloss)
+                    loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
+                    if (it + 1) % show_iter == 0:
+                        
+                        model.eval()
+                        log_prob = model.log_prob(zz).detach().cpu()
+                        model.train()
+                        prob = torch.exp(log_prob.to('cpu').view(*xx.shape))
+                        prob[torch.isnan(prob)] = 0
+
+                        plt.figure(figsize=(15, 15))
+                        plt.pcolormesh(xx, yy, prob.data.numpy(), cmap='coolwarm')
+                        plt.gca().set_aspect('equal', 'box')
+                        plt.show()
+                        with torch.no_grad():
+                            model.eval()
+                            x = target.sample(100000).to(device).cpu().detach().numpy()
+                            y,_ = model.sample(100000)
+                            y = y.to(device).cpu().detach().numpy()
+                            model.train()
+                            plt.figure(figsize=(15, 15))
+                            #line plot the first marginals from x and y on one plot
+                            plt.hist(x[:,0],bins=500,alpha=0.5,label='target')
+                            plt.hist(y[:,0],bins=500,alpha=0.5,label='model')
+                            plt.legend()
+                            plt.show()
+                            plt.figure(figsize=(15, 15))
+                            plt.hist(x[:,1],bins=500,alpha=0.5,label='target')
+                            plt.hist(y[:,1],bins=500,alpha=0.5,label='model')
+                            plt.legend()
+                            plt.show()
+                            plt.figure(figsize=(10, 10))
+                            plt.plot(loss_hist, label='loss')
+                            plt.legend()
+                            plt.show()
+
+
+
+
+                except Exception as e:
+                    if True:
+                        #print('error',e)
+                        with torch.no_grad():
+
+                            model.load_state_dict(best_params)
+
+                # optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+
+                #model = model.to(device)
+            model.load_state_dict(best_params)
+            models.append([_b,_betab,_vsh,model,base,target])
+            torch.save(models,'models_results.pt')

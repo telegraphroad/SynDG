@@ -132,6 +132,7 @@ try:
     lr = float(sys.argv[4])
     fltyp = str(sys.argv[5])
     rbst = bool(sys.argv[6])
+    vlay = int(sys.argv[7])
 except:
     _nl = 4
     _w = 128
@@ -139,6 +140,7 @@ except:
     lr = 1e-1
     fltyp = 'rnvp'
     rbst = False
+    vlay = 4
     print('Manual params!!!!')
 # for nl in list(reversed([8,16,32,48,64,80,100,120,140,180,220,280,320])):
 for nl in [_nl]:
@@ -157,7 +159,7 @@ for nl in [_nl]:
                     del model, optimizer, flows, base
                 except:
                     pass
-                dataloader = DataLoader(my_dataset, batch_size=2**12, shuffle=True)
+                dataloader = DataLoader(my_dataset, batch_size=2**14, shuffle=True)
                 print(nl,ml,w)
                 num_layers = nl
                 flows = []
@@ -183,23 +185,23 @@ for nl in [_nl]:
                     flows = residual(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
                 base = nf.distributions.base.DiagGaussian(latent_size)
                 trnbl = True
-                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.5, dim=latent_size,loc=list(my_dataset.data.median()),scale=list(my_dataset.data.std()),p=2.,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
+                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.5, dim=latent_size,loc=list(my_dataset.data.median()),scale=list(my_dataset.data.std()),p=2.5,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
 
                 #model = nf.NormalizingFlow(base, flows)
-                model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=4, vardeq_flow_type='shiftscale')
+                model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=vlay, vardeq_flow_type='shiftscale')
                 model = model.to(device)
 
 
 
-                max_iter = 10000
-                num_samples = 2 ** 10
-                show_iter = 250
+                max_iter = 100
+                num_samples = 2 ** 12
+                show_iter = 2500
 
 
                 loss_hist = np.array([])
 
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
-                scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+                scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
 
                 #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
                 max_norm = 0.5
@@ -214,7 +216,7 @@ for nl in [_nl]:
                         #x = torch.stack(features).to(device)
                         x = features.to(device)
                         try:
-                            loss = model.forward_kld(x, robust=rbst,rmethod='geomed')    
+                            loss = model.forward_kld(x, robust=rbst,rmethod='med')    
                             # l2_lambda = 0.001  # The strength of the regularization
                             # l2_norm = sum(p.pow(2.0).sum() for p in model.parameters())
                             # loss = loss + l2_lambda * l2_norm
@@ -249,7 +251,7 @@ for nl in [_nl]:
                             _stalecounter += 5
                         else:
                             _stalecounter += 1
-                    if _stalecounter > 25:
+                    if _stalecounter > 101:
                         print('STALLED')
                         _stalecounter = 0
                         break
@@ -288,7 +290,7 @@ for nl in [_nl]:
                 model.eval()
                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./model_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}.pt')
+                torch.save(model,f'./model_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.pt')
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -298,7 +300,7 @@ for nl in [_nl]:
                 dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
                 ds_gn = ds_gn.astype(dict_dtype)
 
-                ds_gn.to_csv(f'./gen_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}.csv')
+                ds_gn.to_csv(f'./gen_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.csv')
                 my_dataset.data.to_csv(f'./adult_gen.csv')
                 nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
 
@@ -433,7 +435,7 @@ for nl in [_nl]:
 
                 plt.tight_layout()
                 plt.show()
-                plt.savefig(f'./gendist_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}.png')
+                plt.savefig(f'./gendist_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -445,4 +447,5 @@ for nl in [_nl]:
                 print(e)
                 print(e.with_traceback())
                 pass
+
 
