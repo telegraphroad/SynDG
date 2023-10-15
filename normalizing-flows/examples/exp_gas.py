@@ -338,7 +338,7 @@ for nl in [_nl]:
                 model.eval()
                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.pt')
+                torch.save(model,f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.pt')
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -348,7 +348,7 @@ for nl in [_nl]:
                 dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
                 ds_gn = ds_gn.astype(dict_dtype)
 
-                ds_gn.to_csv(f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.csv')
+                ds_gn.to_csv(f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.csv')
                 my_dataset.data.to_csv(f'./gas_gen.csv')
                 nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
 
@@ -483,7 +483,7 @@ for nl in [_nl]:
 
                 plt.tight_layout()
                 plt.show()
-                plt.savefig(f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.png')
+                plt.savefig(f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()

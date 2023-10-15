@@ -197,7 +197,7 @@ for nl in [_nl]:
     # for w in list(reversed([64,128,192,256,378,512,768,1024,2048,4096,8192])):    
             try:
                 print('===================================================')
-                print(f'miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}')
+                print(f'miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}')
                 _closs = 1e10
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -340,7 +340,7 @@ for nl in [_nl]:
                 model.eval()
                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.pt')
+                torch.save(model,f'./miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.pt')
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -350,7 +350,7 @@ for nl in [_nl]:
                 dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
                 ds_gn = ds_gn.astype(dict_dtype)
 
-                ds_gn.to_csv(f'./miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.csv')
+                ds_gn.to_csv(f'./miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.csv')
                 my_dataset.data.to_csv(f'./miniboone_gen.csv')
                 nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
 
@@ -485,7 +485,7 @@ for nl in [_nl]:
 
                 plt.tight_layout()
                 plt.show()
-                plt.savefig(f'./miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}.png')
+                plt.savefig(f'./miniboone_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()
