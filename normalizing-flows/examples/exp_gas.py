@@ -240,7 +240,7 @@ for nl in [_nl]:
 
 
                 max_iter = 100
-                num_samples = 2 ** 14
+                num_samples = 2 ** 9
                 show_iter = 2500
 
 
