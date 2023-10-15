@@ -103,15 +103,21 @@ classifiers = {
 }
 real = pd.read_csv('miniboone.csv').drop(['Unnamed: 0'],axis=1)
 
-for column in real.columns:
-    unique_values = real[column].nunique()
-    print(f"Column '{column}' has {unique_values} unique values.")    
+# for column in real.columns:
+#     unique_values = real[column].nunique()
+#     print(f"Column '{column}' has {unique_values} unique values.")    
 
 for synthetic_file in synthetic_files:
     # Load synthetic dataset
     real = pd.read_csv('miniboone.csv').drop(['Unnamed: 0'],axis=1)
     synthetic = pd.read_csv(synthetic_file).drop(['Unnamed: 0'],axis=1)
-    
+    xcol = synthetic.columns
+    # for ii in range(len(categorical)):
+    #     X[X.columns[categorical[ii]]] = X[X.columns[categorical[ii]]] * lcm / categorical_qlevels[ii]
+    scaler = MinMaxScaler()
+    scaler.fit(synthetic)
+    synthetic = scaler.transform(synthetic)
+    synthetic = pd.DataFrame(synthetic, columns=xcol)
     # Perform KS test
     ks_results = []
     for feature in real.columns:
