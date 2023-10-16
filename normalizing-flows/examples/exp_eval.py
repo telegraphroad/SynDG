@@ -88,7 +88,10 @@ from sklearn.metrics import accuracy_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 import glob
+import warnings
 
+# Suppress all warnings
+warnings.simplefilter("ignore")
 
 
 # Get the filenames of synthetic datasets
@@ -97,8 +100,8 @@ synthetic_files = glob.glob('miniboone_*.csv')
 # Define the classifiers
 classifiers = {
     'Logistic Regression': LogisticRegression(),
-    'Decision Tree': DecisionTreeClassifier(),
-    'Random Forest': RandomForestClassifier(),
+    # 'Decision Tree': DecisionTreeClassifier(),
+    # 'Random Forest': RandomForestClassifier(),
     # Add more classifiers as needed
 }
 real = pd.read_csv('miniboone.csv').drop(['Unnamed: 0'],axis=1)
@@ -107,25 +110,28 @@ real = pd.read_csv('miniboone.csv').drop(['Unnamed: 0'],axis=1)
 #     unique_values = real[column].nunique()
 #     print(f"Column '{column}' has {unique_values} unique values.")    
 
-for synthetic_file in synthetic_files:
+for synthetic_file in np.sort(synthetic_files):
     # Load synthetic dataset
     real = pd.read_csv('miniboone.csv').drop(['Unnamed: 0'],axis=1)
     synthetic = pd.read_csv(synthetic_file).drop(['Unnamed: 0'],axis=1)
-    xcol = synthetic.columns
-    # for ii in range(len(categorical)):
-    #     X[X.columns[categorical[ii]]] = X[X.columns[categorical[ii]]] * lcm / categorical_qlevels[ii]
-    scaler = MinMaxScaler()
-    scaler.fit(synthetic)
-    synthetic = scaler.transform(synthetic)
-    synthetic = pd.DataFrame(synthetic, columns=xcol)
+
+    # xcol = synthetic.columns
+    # scaler = MinMaxScaler()
+    # scaler.fit(synthetic)
+    # synthetic = scaler.transform(synthetic)
+    # synthetic = pd.DataFrame(synthetic, columns=xcol)
+    
     # Perform KS test
     ks_results = []
+    p_results = []
     for feature in real.columns:
         ks_stat, p_value = ks_2samp(real[feature], synthetic[feature])
         ks_results.append(ks_stat)
+        p_results.append(p_value)
 
     average_ks = np.mean(ks_results)
-    print("KS statistic for", synthetic_file, ":", average_ks)
+    average_p = np.mean(p_results)
+    #print("KS statistic for", synthetic_file, ":", average_ks, ", p-value:", average_p)
     
     # Create target labels for detection test
     real['label'] = 1
@@ -148,6 +154,6 @@ for synthetic_file in synthetic_files:
         classifier.fit(X_train, y_train)
         y_pred = classifier.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
-        print(clf_name, "accuracy for", synthetic_file, ":", accuracy)
-    
-    print()
+        if accuracy <0.9:
+            print(clf_name, "accuracy for", synthetic_file, ":", accuracy)
+            #print("KS statistic for", synthetic_file, ":", average_ks, ", p-value:", average_p)
