@@ -172,15 +172,25 @@ try:
     rbst = bool(sys.argv[6])
     vlay = int(sys.argv[7])
     nsamp = int(sys.argv[8])
+    nmodes = int(sys.argv[9])
+    rndadd = float(sys.argv[10])
+    usestd = bool(sys.argv[11])
+    useloc = bool(sys.argv[12])
+    initp = float(sys.argv[13])
 except:
-    _nl = 4
-    _w = 128
+    _nl = 15
+    _w = 512
     _ml = 4
-    lr = 1e-1
+    lr = 1e-4
     fltyp = 'rnvp'
-    rbst = False
+    rbst = True
     vlay = 4
-    nsamp = 512
+    nsamp = 2048
+    nmodes = 200
+    rndadd = 0.5
+    usestd = True
+    useloc = True
+    initp = 2.5
     print('Manual params!!!!')
 # for nl in list(reversed([8,16,32,48,64,80,100,120,140,180,220,280,320])):
 for nl in [_nl]:
@@ -225,7 +235,7 @@ for nl in [_nl]:
                     flows = residual(K=_nl,dim=latent_size, hidden_units=_w, hidden_layers=_ml)
                 base = nf.distributions.base.DiagGaussian(latent_size)
                 trnbl = True
-                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=200, rand_p=True, noise_scale=0.5, dim=latent_size,loc=list(my_dataset.data.median()),scale=list(my_dataset.data.std()),p=2.5,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
+                base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=nmodes, rand_p=True, noise_scale=rndadd, dim=latent_size,loc=list(my_dataset.data.median()) if useloc else 0.,scale=list(my_dataset.data.std()) if usestd else 1.,p=initp,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
 
                 #model = nf.NormalizingFlow(base, flows)
                 model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=vlay, vardeq_flow_type='shiftscale')
@@ -328,10 +338,10 @@ for nl in [_nl]:
                 gc.collect()
 
                 model.eval()
-                torch.save(model,f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.pt')
+                torch.save(model,f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.pt')
+                torch.save(model,f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -341,7 +351,7 @@ for nl in [_nl]:
                 dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
                 ds_gn = ds_gn.astype(dict_dtype)
 
-                ds_gn.to_csv(f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.csv')
+                ds_gn.to_csv(f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
                 my_dataset.data.to_csv(f'./hepmass_gen.csv')
                 nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
 
@@ -476,7 +486,7 @@ for nl in [_nl]:
 
                 plt.tight_layout()
                 plt.show()
-                plt.savefig(f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.png')
+                plt.savefig(f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.png')
                 del ds_gn
                 torch.cuda.empty_cache()
                 gc.collect()
