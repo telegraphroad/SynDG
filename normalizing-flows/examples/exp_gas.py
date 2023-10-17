@@ -206,6 +206,9 @@ for nl in [_nl]:
         for ml in [_ml]:
     # for w in list(reversed([64,128,192,256,378,512,768,1024,2048,4096,8192])):    
             try:
+                print('=======================================================')
+                print(f'power_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}')
+
                 _closs = 1e10
                 torch.cuda.empty_cache()
                 gc.collect()
