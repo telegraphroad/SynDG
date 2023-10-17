@@ -271,11 +271,12 @@ for b in ablation_results['base_distribution'].unique():
     axs[rowctr,0].annotate("Null\nHypothesis", xy=(-0.05, 0.07), xycoords='axes fraction', color='darkorange')
     if rowctr==0:
         axs[rowctr,0].annotate(r"Student's t $\nu=1000$", xy=(0.79, 0.87), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,0].annotate(r"GGD $\beta=1$", xy=(0.79, 0.80), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,0].annotate(r"Student's t $\nu=1$", xy=(0.05, 0.87), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,0].annotate(r"GGD $\beta=4.33$", xy=(0.05, 0.80), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,0].set_title('p values for variable 1, shorter tailed', fontsize=16)
+        #axs[rowctr,0].annotate(r"GGD $\beta=1$", xy=(0.79, 0.80), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,0].annotate(r"Student's t $\nu=1.0$", xy=(0.05, 0.87), xycoords='axes fraction', color='darkorange')
+        #axs[rowctr,0].annotate(r"GGD $\beta=4.33$", xy=(0.05, 0.80), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,0].set_title('p values for variable 1, shorter tailed', fontsize=24)
         axs[rowctr,0].set_xlabel('')
+        
         
         axs[rowctr,0].set_xticklabels([])
         axs[rowctr,1].set_xticklabels([])
@@ -288,11 +289,11 @@ for b in ablation_results['base_distribution'].unique():
     axs[rowctr,1].axhline(0.05, color='r', linestyle='--')
     axs[rowctr,1].annotate("Null\nHypothesis", xy=(-0.05, 0.07), xycoords='axes fraction', color='darkorange')
     if rowctr==0:
-        axs[rowctr,1].annotate(r"Student's t $\nu=1000$", xy=(0.79, 0.87), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,1].annotate(r"GGD $\beta=4.33$", xy=(0.79, 0.80), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,1].annotate(r"Student's t $\nu=1$", xy=(0.057, 0.87), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,1].annotate(r"GGD $\beta=4.33$", xy=(0.057, 0.80), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,1].set_title('p values for variable 2, heavier tailed', fontsize=16)
+        #axs[rowctr,1].annotate(r"Student's t $\nu=1000$", xy=(0.79, 0.87), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,1].annotate(r"GGD $\beta=1.0$", xy=(0.85, 0.87), xycoords='axes fraction', color='darkorange')
+        #axs[rowctr,1].annotate(r"Student's t $\nu=1$", xy=(0.057, 0.87), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,1].annotate(r"GGD $\beta=4.33$", xy=(0.058, 0.87), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,1].set_title('p values for variable 2, heavier tailed', fontsize=24)
         axs[rowctr,1].set_xlabel('')
     axs[rowctr,1].set_ylim([0,1])  # set y limit here
     axs[rowctr,0].grid(True)
@@ -300,7 +301,8 @@ for b in ablation_results['base_distribution'].unique():
     alpha -= 0.3
     rowctr+=1
     # Display the figure
-
+axs[0,1].set_ylabel('')
+axs[1,1].set_ylabel('')
 for ax in axs.flat:
     ax.get_legend().remove() 
 x_start_rel = 0.055  # x relative position of vertical line (for x=1000)
@@ -321,7 +323,7 @@ fig.lines.append(line)
 
 row_labels = ["GGD base", "Mixture of GGD base"]
 for row in range(2):
-    axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=16)
+    axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=21)
 
 axs[1,0].set_xlabel(r'$\gamma$')
 axs[1,1].set_xlabel(r'$\gamma$')

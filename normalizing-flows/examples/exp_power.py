@@ -330,6 +330,7 @@ for nl in [_nl]:
                 gc.collect()
 
                 model.eval()
+                torch.save(model,f'./power_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.pt')
                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
                 torch.save(model,f'./power_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}.pt')

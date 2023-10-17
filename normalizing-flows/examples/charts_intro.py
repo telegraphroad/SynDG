@@ -628,13 +628,21 @@ line_xpos = 0.263  # Adjust this as needed
 line = Line2D([line_xpos, line_xpos], [0.015, 0.959], transform=fig.transFigure, color='red', linestyle='--',lw=3)
 fig.lines.append(line)
 
-titles = ["Target", "Heavy tailed GGD base", "Gaussian base", "Light tailed GGD base","Student's t base"]
+titles = ["", "Heavy tailed GGD", "Gaussian", "Light tailed GGD","Student's t"]
 for col in range(4):
-    axs[0, col].set_title(titles[col],fontsize=23)
+    axs[0, col].set_title(titles[col],fontsize=25,color='green')
 
-row_labels = ["Heavy tailed GGD target", "Gaussian target", "Light tailed GGD target"]
+axs[0, 0].set_title("Target",fontsize=25,color='blue')
+row_labels = ["Heavy tailed GGD", "Gaussian", "Light tailed GGD"]
 for row in range(3):
-    axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=21)
+    axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=23,color='blue')
+    
+fig.text(-0.015, 0.5, "Target", rotation=90, va='center', fontsize=35,color='blue')
+#fig.text(-0.015, 0.5, "[", rotation=0, va='center', fontsize=30,transform=fig.transFigure)
+fig.text(0.63, 0.999, "Base", ha='center', fontsize=35,color='green')
+#fig.text(0.63, 0.999, "[", ha='center', va='top', fontsize=23, transform=fig.transFigure)
+#plt.figtext(0.5, 0.99, "[", ha='center', va='top', fontsize=23)
+
 
 plt.tight_layout()  # Automatically adjust subplot parameters to give specified padding
 #cbar = fig.colorbar(sm, ax=axs, orientation='vertical',pad=0.01)
