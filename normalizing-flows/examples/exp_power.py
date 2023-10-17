@@ -253,7 +253,7 @@ for nl in [_nl]:
                 loss_hist = np.array([])
 
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
-                scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+                scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, verbose=True)
 
                 #optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
                 max_norm = 0.5
@@ -303,7 +303,7 @@ for nl in [_nl]:
                             _stalecounter += 5
                         else:
                             _stalecounter += 1
-                    if _stalecounter > 15:
+                    if _stalecounter > 60:
                         print('STALLED')
                         _stalecounter = 0
                         break
