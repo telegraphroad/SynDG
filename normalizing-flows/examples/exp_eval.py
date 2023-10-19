@@ -111,57 +111,60 @@ real = pd.read_csv(f'{dataset}.csv').drop(['Unnamed: 0'],axis=1)
 #     print(f"Column '{column}' has {unique_values} unique values.")    
 
 for synthetic_file in np.sort(synthetic_files):
-    if 'ctgan' in synthetic_file:
+    if 'ctgan' in synthetic_file or '_gen' in synthetic_file:
         break
     # Load synthetic dataset
-    real = pd.read_csv(f'{dataset}_gen.csv').drop(['Unnamed: 0'],axis=1)
-    synthetic = pd.read_csv(synthetic_file).drop(['Unnamed: 0'],axis=1)
+    try: 
+        real = pd.read_csv(f'{dataset}_gen.csv').drop(['Unnamed: 0'],axis=1)
+        synthetic = pd.read_csv(synthetic_file).drop(['Unnamed: 0'],axis=1)
 
-    # xcol = synthetic.columns
-    # scaler = MinMaxScaler()
-    # scaler.fit(synthetic)
-    # synthetic = scaler.transform(synthetic)
-    # synthetic = pd.DataFrame(synthetic, columns=xcol)
-    
-    # Perform KS test
-    ks_results = []
-    p_results = []
-    for feature in real.columns:
-        ks_stat, p_value = ks_2samp(real[feature], synthetic[feature])
-        ks_results.append(ks_stat)
-        p_results.append(p_value)
+        # xcol = synthetic.columns
+        # scaler = MinMaxScaler()
+        # scaler.fit(synthetic)
+        # synthetic = scaler.transform(synthetic)
+        # synthetic = pd.DataFrame(synthetic, columns=xcol)
+        
+        # Perform KS test
+        ks_results = []
+        p_results = []
+        for feature in real.columns:
+            ks_stat, p_value = ks_2samp(real[feature], synthetic[feature])
+            ks_results.append(ks_stat)
+            p_results.append(p_value)
 
-    average_ks = np.median(ks_results)
-    average_p = np.median(p_results)
-    #print("KS statistic for", synthetic_file, ":", average_ks, ", p-value:", average_p)
-    
-    # Create target labels for detection test
-    real['label'] = 1
-    synthetic['label'] = 0
-    
-    # Perform sampling on real and synthetic datasets
-    sampled_real = real.sample(n=len(synthetic), random_state=42)
-    sampled_synthetic = synthetic.sample(n=len(synthetic), random_state=42)
-    if len(sampled_real) == 1:
-        break
-    
-    
-    # Concatenate sampled real and synthetic datasets
-    combined_data = pd.concat([sampled_real, sampled_synthetic], ignore_index=True)
-    
-    # Split the combined dataset into train and test sets
-    X = combined_data.drop('label', axis=1)
-    y = combined_data['label']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-    
-    # Train and evaluate each classifier
-    for clf_name, classifier in classifiers.items():
-        classifier.fit(X_train, y_train)
-        y_pred = classifier.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        rocauc = roc_auc_score(y_test, y_pred)
-        print(clf_name, "accuracy ", ":", accuracy,', roc auc: ',rocauc,", KS statistic:", average_ks,", pva:", average_p,"for", synthetic_file)
-
+        average_ks = np.median(ks_results)
+        average_p = np.median(p_results)
+        #print("KS statistic for", synthetic_file, ":", average_ks, ", p-value:", average_p)
+        
+        # Create target labels for detection test
+        real['label'] = 1
+        synthetic['label'] = 0
+        
+        # Perform sampling on real and synthetic datasets
+        sampled_real = real.sample(n=len(synthetic), random_state=42)
+        sampled_synthetic = synthetic.sample(n=len(synthetic), random_state=42)
+        if len(sampled_real) == 1:
+            break
+        
+        
+        # Concatenate sampled real and synthetic datasets
+        combined_data = pd.concat([sampled_real, sampled_synthetic], ignore_index=True)
+        
+        # Split the combined dataset into train and test sets
+        X = combined_data.drop('label', axis=1)
+        y = combined_data['label']
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+        
+        # Train and evaluate each classifier
+        for clf_name, classifier in classifiers.items():
+            classifier.fit(X_train, y_train)
+            y_pred = classifier.predict(X_test)
+            accuracy = accuracy_score(y_test, y_pred)
+            rocauc = roc_auc_score(y_test, y_pred)
+            if average_ks<0.25:
+                print(clf_name, "accuracy ", ":", accuracy,', roc auc: ',rocauc,", KS statistic:", average_ks,", pva:", average_p,"for", synthetic_file)
+    except:
+        continue
 # Load synthetic dataset
 real = pd.read_csv(f'{dataset}.csv').drop(['Unnamed: 0'],axis=1)
 synthetic = pd.read_csv(f'{dataset}_ctgan_200.csv').drop(['Unnamed: 0'],axis=1)

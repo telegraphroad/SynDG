@@ -237,7 +237,7 @@ from matplotlib.lines import Line2D
 import warnings
 warnings.filterwarnings('ignore')
 
-fig, axs = plt.subplots(2, 2, figsize=(20,10))
+fig, axs = plt.subplots(2, 2, figsize=(18,7))
 
 rowctr = 0
 alpha = 0.9
@@ -267,8 +267,8 @@ for b in ablation_results['base_distribution'].unique():
     sns.set_style("darkgrid")
     sns.lineplot(data=df_v0, x='beta', y='pval', hue='group',palette=palette, ax=axs[rowctr,0],alpha=alpha)
     sns.set_style("darkgrid")
-    axs[rowctr,0].axhline(0.05, color='r', linestyle='--')
-    axs[rowctr,0].annotate("Null\nHypothesis", xy=(-0.05, 0.07), xycoords='axes fraction', color='darkorange')
+    axs[rowctr,0].axhline(0.05, color='royalblue', linestyle='--')
+    #axs[rowctr,0].annotate("Null\nHypothesis", xy=(-0.04, 0.07), xycoords='axes fraction', color='darkorange')
     if rowctr==0:
         axs[rowctr,0].annotate(r"Student's t $\nu=1000$", xy=(0.79, 0.87), xycoords='axes fraction', color='darkorange')
         #axs[rowctr,0].annotate(r"GGD $\beta=1$", xy=(0.79, 0.80), xycoords='axes fraction', color='darkorange')
@@ -286,13 +286,14 @@ for b in ablation_results['base_distribution'].unique():
 
     # Plot the data for 'v1' in the second subplot
     sns.lineplot(data=df_v1, x='beta', y='pval', hue='group',palette=palette, ax=axs[rowctr,1],alpha=alpha)
-    axs[rowctr,1].axhline(0.05, color='r', linestyle='--')
-    axs[rowctr,1].annotate("Null\nHypothesis", xy=(-0.05, 0.07), xycoords='axes fraction', color='darkorange')
+    axs[rowctr,1].axhline(0.05, color='royalblue', linestyle='--')
+    axs[rowctr,1].annotate("Null hypothesis", xy=(-0.145, 0.07), xycoords='axes fraction', color='royalblue',fontsize=11)
+
     if rowctr==0:
         #axs[rowctr,1].annotate(r"Student's t $\nu=1000$", xy=(0.79, 0.87), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,1].annotate(r"GGD $\beta=1.0$", xy=(0.85, 0.87), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,1].annotate(r"GGD $\beta=1.0$", xy=(0.84, 0.87), xycoords='axes fraction', color='darkorange')
         #axs[rowctr,1].annotate(r"Student's t $\nu=1$", xy=(0.057, 0.87), xycoords='axes fraction', color='darkorange')
-        axs[rowctr,1].annotate(r"GGD $\beta=4.33$", xy=(0.058, 0.87), xycoords='axes fraction', color='darkorange')
+        axs[rowctr,1].annotate(r"GGD $\beta=4.33$", xy=(0.018, 0.87), xycoords='axes fraction', color='darkorange')
         axs[rowctr,1].set_title('p values for variable 2, heavier tailed', fontsize=24)
         axs[rowctr,1].set_xlabel('')
     axs[rowctr,1].set_ylim([0,1])  # set y limit here
@@ -323,7 +324,7 @@ fig.lines.append(line)
 
 row_labels = ["GGD base", "Mixture of GGD base"]
 for row in range(2):
-    axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=21)
+    axs[row, 0].set_ylabel(row_labels[row], rotation=90, labelpad=9, verticalalignment='center', fontsize=20)
 
 axs[1,0].set_xlabel(r'$\gamma$')
 axs[1,1].set_xlabel(r'$\gamma$')
@@ -335,7 +336,8 @@ import numpy as np
 from scipy.stats import genpareto, t, norm, gamma, beta, gennorm
 
 # Extend the figure to accommodate the new row
-fig, axs = plt.subplots(1, 4, figsize=(20,5))
+fig, axs = plt.subplots(1, 4, figsize=(20,6))
+
 
 # Your previous code...
 

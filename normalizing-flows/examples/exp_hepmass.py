@@ -308,7 +308,8 @@ for nl in [_nl]:
                         print('STALLED')
                         _stalecounter = 0
                         break
-                    
+                
+                del optimizer,scheduler,dataloader,flows    
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -342,9 +343,10 @@ for nl in [_nl]:
 
                 model.eval()
                 torch.save(model,f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
-                ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+                with torch.no_grad():
+                    ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./hepmass_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
+                
                 del model
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)

@@ -317,13 +317,14 @@ for nl in [_nl]:
                         _stalecounter = 0
                         break
                     
+                del optimizer,scheduler,dataloader,flows
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
                 gc.collect()
-
+                
                 loss_arr.append([nl,w,bestloss])
                 torch.cuda.empty_cache()
                 gc.collect()
@@ -350,7 +351,8 @@ for nl in [_nl]:
 
                 model.eval()
                 torch.save(model,f'./gas_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
-                ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+                with torch.no_grad():
+                    ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
                 
                 del model

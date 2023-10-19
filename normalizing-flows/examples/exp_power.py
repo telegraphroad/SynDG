@@ -316,6 +316,8 @@ for nl in [_nl]:
                 gc.collect()
 
                 loss_arr.append([nl,w,bestloss])
+                
+                del optimizer,scheduler,dataloader,flows
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -341,10 +343,34 @@ for nl in [_nl]:
 
                 model.eval()
                 torch.save(model,f'./power_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
-                ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+                with torch.no_grad():
+                    ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
                 
-                torch.save(model,f'./power_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
+                
                 del model
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+
+                
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+
+                #del model, optimizer, flows, base
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+
                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
                 ds_gn.dropna(inplace=True)
