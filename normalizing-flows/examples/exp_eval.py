@@ -161,7 +161,7 @@ for synthetic_file in np.sort(synthetic_files):
             y_pred = classifier.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
             rocauc = roc_auc_score(y_test, y_pred)
-            if average_ks<0.25:
+            if average_ks<0.21:
                 print(clf_name, "accuracy ", ":", accuracy,', roc auc: ',rocauc,", KS statistic:", average_ks,", pva:", average_p,"for", synthetic_file)
     except:
         continue
