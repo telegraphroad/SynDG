@@ -93,7 +93,7 @@ import warnings
 # Suppress all warnings
 warnings.simplefilter("ignore")
 
-dataset = 'power'
+dataset = 'miniboone'
 # Get the filenames of synthetic datasets
 synthetic_files = glob.glob(f'{dataset}_*.csv')
 

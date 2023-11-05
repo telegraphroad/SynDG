@@ -102,7 +102,7 @@ class NormalizingFlow(nn.Module):
             log_det += log_d
         return x, log_det
 
-    def forward_kld(self, x, robust=False, rmethod = 'geomed'):
+    def forward_kld(self, x, robust=False, rmethod = 'geomed',extended=False):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -122,6 +122,8 @@ class NormalizingFlow(nn.Module):
             z, log_det = self.flows[i].inverse(z)
             log_q += log_det
         log_q += self.q0.log_prob(z)
+        if extended:
+            return log_q      
         if robust:
             if rmethod == 'geomed':
                 return -compute_geometric_median(-log_q.cpu()).median.cuda()
