@@ -184,7 +184,7 @@ class MaskedAffineFlow(Flow):
     - NICE is AffineFlow with only shifts (volume preserving)
     """
 
-    def __init__(self, b, t=None, s=None):
+    def __init__(self, b, t=None, s=None, lipschitzconstrained=False,min=-1.,max=1.,func='tanh',boundtranslate=True):
         """Constructor
 
         Args:
@@ -195,6 +195,11 @@ class MaskedAffineFlow(Flow):
         super().__init__()
         self.b_cpu = b.view(1, *b.size())
         self.register_buffer("b", self.b_cpu)
+        self.lipschitzconstrained = lipschitzconstrained
+        self.min = min
+        self.max = max
+        self.func = func
+        self.boundtranslate = boundtranslate
 
         if s is None:
             self.s = torch.zeros_like
@@ -213,6 +218,17 @@ class MaskedAffineFlow(Flow):
         scale = torch.where(torch.isfinite(scale), scale, nan)
         trans = self.t(z_masked)
         trans = torch.where(torch.isfinite(trans), trans, nan)
+        if self.lipschitzconstrained:
+            if self.func == 'tanh':
+                scale = 0.5 * (self.max - self.min) * (torch.tanh(scale) + 1) + self.min
+            else:
+                scale = self.min + (self.max - self.min) * torch.sigmoid(scale)
+            if self.boundtranslate:
+                if self.func == 'tanh':
+                    trans = 0.5 * (self.max - self.min) * (torch.tanh(trans) + 1) + self.min
+                else:
+                    trans = self.min + (self.max - self.min) * torch.sigmoid(trans)
+
         z_ = z_masked + (1 - self.b) * (z * torch.exp(scale) + trans)
         log_det = torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
         return z_, log_det
@@ -224,6 +240,17 @@ class MaskedAffineFlow(Flow):
         scale = torch.where(torch.isfinite(scale), scale, nan)
         trans = self.t(z_masked)
         trans = torch.where(torch.isfinite(trans), trans, nan)
+        if self.lipschitzconstrained:
+            if self.func == 'tanh':
+                scale = 0.5 * (self.max - self.min) * (torch.tanh(scale) + 1) + self.min
+            else:
+                scale = self.min + (self.max - self.min) * torch.sigmoid(scale)
+            if self.boundtranslate:
+                if self.func == 'tanh':
+                    trans = 0.5 * (self.max - self.min) * (torch.tanh(trans) + 1) + self.min
+                else:
+                    trans = self.min + (self.max - self.min) * torch.sigmoid(trans)
+
         z_ = z_masked + (1 - self.b) * (z - trans) * torch.exp(-scale)
         log_det = -torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
         return z_, log_det

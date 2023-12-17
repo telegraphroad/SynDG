@@ -1,8 +1,10 @@
+from .. import flows
+
 import torch
 import torch.nn as nn
 import numpy as np
+from torch.distributions import MultivariateNormal,Normal
 
-from .. import flows
 
 
 class BaseDistribution(nn.Module):
@@ -101,6 +103,14 @@ class DiagGaussian(BaseDistribution):
             list(range(1, self.n_dim + 1)),
         )
         return log_p
+
+    def cdf(self, value):
+        base_normal = Normal(self.loc, torch.exp(self.log_scale))
+        return base_normal.cdf(value).sum(-1)
+
+    def icdf(self, value):
+        base_normal = Normal(self.loc, torch.exp(self.log_scale))
+        return base_normal.icdf(value)
 
 
 class ConditionalDiagGaussian(BaseDistribution):

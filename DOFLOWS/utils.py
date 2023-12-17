@@ -5,6 +5,21 @@ import numpy as np
 import random
 import torch
 
+def get_grad_stats(model):
+    grad_all = []
+    for p in model.parameters():
+        if p.grad is not None:
+            grad_all.append(p.grad.detach().view(-1))
+    grad_all = torch.cat(grad_all)
+    grad_max = grad_all.max()
+    grad_min = grad_all.min()
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** (1. / 2)
+    return grad_min, grad_max, total_norm
 
 def mnist_noniid(labels, num_users):
     """

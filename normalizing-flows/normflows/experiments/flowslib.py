@@ -33,7 +33,7 @@ def nice(K=16,dim=2,hidden_units=64, hidden_layers=2):
     return flows
 
 # Make RealNVP flow
-def rnvp(K=16,dim=2,hidden_units=64, hidden_layers=2):
+def rnvp(K=16,dim=2,hidden_units=64, hidden_layers=2,lipschitzconstrained=False,min=-1.,max=1.,func='tanh',boundtranslate=True):
     b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(dim)])
     flows = []
     for i in range(K):
@@ -41,9 +41,9 @@ def rnvp(K=16,dim=2,hidden_units=64, hidden_layers=2):
         s = nf.nets.MLP(lay, init_zeros=True)
         t = nf.nets.MLP(lay, init_zeros=True)
         if i % 2 == 0:
-            flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+            flows += [nf.flows.MaskedAffineFlow(b, t, s, lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)]
         else:
-            flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+            flows += [nf.flows.MaskedAffineFlow(1 - b, t, s, lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)]
         flows += [nf.flows.ActNorm(dim)]
     return flows
 

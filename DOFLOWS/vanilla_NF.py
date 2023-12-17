@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(description='Train a NF model.')
 
 # Add the arguments
 parser.add_argument('--clip', type=float, default=1.0, required=False, help='The clip value.')
-parser.add_argument('--lr', type=float, default = 0.00000000001, required=False, help='The learning rate.')
+parser.add_argument('--lr', type=float, default = 0.0001, required=False, help='The learning rate.')
 
 # bs = 100
 # # MNIST Dataset
@@ -76,7 +76,7 @@ def load_cnn_mnist(num_users):
 
 
 class DPNF(nn.Module):
-    def __init__(self,model,dataset, E,q,batch_size,clip,eps,delta,lr,iters=50,device='cuda',x_dim=784, h_dim1=512, h_dim2=256, z_dim=2,momentum=0.9):
+    def __init__(self,model, E,q,batch_size,clip,eps,delta,lr,dp=False,iters=50,device='cuda',x_dim=784, h_dim1=512, h_dim2=256, z_dim=2,momentum=0.9):
         super(DPNF, self).__init__()
         self.E = E
         self.q = q
@@ -86,19 +86,34 @@ class DPNF(nn.Module):
         self.eps = eps
         self.delta = delta
         self.iters = iters
+        self.best_params = None
+        transform=transforms.Compose(
+            [
+                # Resize images to the size specified by the 'img_size' variable.
+                #transforms.Resize(img_size),
+                # Convert images from PIL format to PyTorch tensors.
+                transforms.ToTensor(),
+                # Normalize tensors so that the pixel intensity values have a mean of 0.5 and a standard deviation of 0.5.
+                #transforms.Normalize([0.5], [0.5]),
+                #transforms.Lambda(lambda x: x.view(n_dims)),  
+            ]
+        )
+
         
-        
-        ds = dataset[0]   # test set
-        self.train_dataset = TensorDataset(ds[0].clone().detach().to(self.device),
-                                           ds[1].clone().detach().to(self.device))
-        _ds = datasets.FashionMNIST(root='./mnist_data/', train=False, transform=transforms.ToTensor(), download=True)
+        #self.train_dataset = datasets.FashionMNIST(root='./mnist_data/', train=True, transform=transforms.ToTensor(), download=True)
+        self.train_dataset = datasets.FashionMNIST(root='./mnist_data/', train=True, transform=transform, download=True)
+        #_ds = datasets.FashionMNIST(root='./mnist_data/', train=False, transform=transforms.ToTensor(), download=True)
+        _ds = datasets.FashionMNIST(root='./mnist_data/', train=False, transform=transform, download=True)
         self.test_loader = torch.utils.data.DataLoader(dataset=_ds, batch_size=self.BATCH_SIZE, shuffle=True)
         
         self.data_size = len(self.train_dataset)
         self.model = model
         self.optimizer = optim.SGD(self.model.parameters(),lr=lr,momentum=momentum)
-        self.optimizer = optim.Adam(self.model.parameters())
-        self.sigma = calibrating_sampled_gaussian(self.q, self.eps, self.delta, self.E*self.iters, err=1e-3)
+        self.optimizer = optim.Adam(self.model.parameters(),lr=lr)
+        if dp:
+            self.sigma = calibrating_sampled_gaussian(self.q, self.eps, self.delta, self.E*self.iters, err=1e-3)
+        else:
+            self.sigma = 0.0
 
     def loss_function(self,recon_x, x, mu, log_var):
         BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
@@ -112,12 +127,14 @@ class DPNF(nn.Module):
         return BCE + KLD
 
     def trainmodel(self):
+        if self.best_params is not None:
+            self.model.load_state_dict(self.best_params)
         train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, batch_size=self.BATCH_SIZE, shuffle=True)
         self.model.train()
         train_loss = 0
-        best_params = copy.deepcopy(model.state_dict())
+        self.best_params = copy.deepcopy(model.state_dict())
         bestloss = 1e12
-        for batch_idx, (data, _) in tqdm(enumerate(train_loader), desc=f"Best loss: {bestloss}"):
+        for batch_idx, (data, _) in tqdm(enumerate(train_loader)):
         #for batch_idx, (data, _) in enumerate(train_loader):
             try:
                 data = data.cuda()
@@ -135,10 +152,13 @@ class DPNF(nn.Module):
                             if (torch.isnan(_s).sum()==0 & torch.isinf(_s).sum()==0):
                             
                                 bestloss = copy.deepcopy(loss.item())
-                                best_params = copy.deepcopy(self.model.state_dict())                
+                                self.best_params = copy.deepcopy(self.model.state_dict())    
+                                print('best loss: ',bestloss) 
+                        # else:
+                        #     self.model.load_state_dict(best_params)           
 
             except Exception as e:
-                self.model.load_state_dict(best_params)
+                self.model.load_state_dict(self.best_params)
             
         #print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, train_loss / len(train_loader.dataset)))
 
@@ -147,17 +167,17 @@ class DPNF(nn.Module):
         print(r"$\sigma$: ", self.sigma)
         train_loss = 0
         
-        best_params = copy.deepcopy(model.state_dict())
+        self.best_params = copy.deepcopy(model.state_dict())
         bestloss = 1e12
         for e in range(self.E):
             try:
-                idx = np.where(np.random.rand(len(self.train_dataset[:][0])) < self.q)[0]
-                sampled_dataset = TensorDataset(self.train_dataset[idx][0], self.train_dataset[idx][1])
+                idx = np.where(np.random.rand(len(self.train_dataset.data[:])) < self.q)[0]
+                sampled_dataset = TensorDataset(self.train_dataset.data[idx], self.train_dataset.targets[idx])
                 sample_data_loader = DataLoader(dataset=sampled_dataset, batch_size=self.BATCH_SIZE, shuffle=True)
 
                 self.optimizer.zero_grad()
                 clipped_grads = {name: torch.zeros_like(param) for name, param in self.model.named_parameters()}
-                pbar = tqdm(sample_data_loader, desc=f"Epoch {e+1}/{self.E}")
+                pbar = tqdm(sample_data_loader, desc=f"Epoch {e+1}/{self.E}, Best loss: {bestloss}")
 
                 #for batch_x, _ in sample_data_loader:
                 for batch_x, _ in pbar:
@@ -167,7 +187,7 @@ class DPNF(nn.Module):
                     loss = self.model.forward_kld(batch_x.view(_dsh[0],_dsh[-1]*_dsh[-1]).float(),extended=True)
                     #loss = self.loss_function_dp(recon_batch, batch_x.view(-1,784).float(), mu, log_var)
                     self.model.sample(1000)
-                    if ~(torch.isnan(loss) | torch.isinf(loss)):
+                    if not ((torch.isnan(loss).sum()>0).item() | (torch.isinf(loss).sum()>0).item()):
                         for i in range(loss.size()[0]):
                             loss[i].backward(retain_graph=True)
                             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.clip)
@@ -189,22 +209,27 @@ class DPNF(nn.Module):
                 self.optimizer.step()        
                 torch.cuda.empty_cache()
                 with torch.no_grad():
-                    if loss.item()<bestloss:
-                        _s,_ = model.sample(1000)
-                        if (torch.isnan(_s).sum()==0 & torch.isinf(_s).sum()==0):
-                        
-                            bestloss = copy.deepcopy(loss.item())
-                            best_params = copy.deepcopy(self.model.state_dict())                
+                    if not ((torch.isnan(loss).sum()>0).item() | (torch.isinf(loss).sum()>0).item()):
+                        if loss.sum().item()<bestloss:
+                            
+                            _s,_ = model.sample(1000)
+                            if (torch.isnan(_s).sum()==0 & torch.isinf(_s).sum()==0):
+                            
+                                bestloss = copy.deepcopy(loss.item())
+                                self.best_params = copy.deepcopy(self.model.state_dict())                
+                                print('best loss: ',bestloss)            
             except Exception as e:
-                self.model.load_state_dict(best_params)
+                print(e)
+                print(e.with_traceback())
+                self.model.load_state_dict(self.best_params)
 
 
 
 
 # %%
 
-E = 100
-q = 0.01
+E = 10
+q = 0.5
 batch_size = 1024
 clip = 0.2
 x_dim=784
@@ -214,9 +239,9 @@ z_dim=2
 lr=1e-1
 momentum=0.9
 C = 1
-eps = 40000.0
+eps = 4000.0
 delta = 1e-5
-iters = 10
+iters = 50
 device='cuda'
 args = parser.parse_args()
 
@@ -247,15 +272,15 @@ num_classes = 10
 # Set up flows, distributions and merge operations
 q0 = []
 merges = []
-batch_size = 128
+batch_size = 512
 num_samples = 32
-n_flows = 6
+n_flows = 12
 n_bottleneck = n_dims
 b = torch.tensor(n_bottleneck // 2 * [0, 1] + n_bottleneck % 2 * [0])
 flows = []
 for i in range(n_flows):
-    s = nf.nets.MLP([n_bottleneck,n_bottleneck, n_bottleneck])
-    t = nf.nets.MLP([n_bottleneck,n_bottleneck, n_bottleneck])
+    s = nf.nets.MLP([n_bottleneck,n_bottleneck*3, n_bottleneck])
+    t = nf.nets.MLP([n_bottleneck,n_bottleneck*3, n_bottleneck])
     if i % 2 == 0:
         flows += [nf.flows.MaskedAffineFlow(b, t, s)]
     else:
@@ -265,17 +290,38 @@ for i in range(n_flows):
 q0 = torch.distributions.MultivariateNormal(torch.zeros(n_bottleneck, device=device),
                                                torch.eye(n_bottleneck, device=device))
 q0 = nf.distributions.DiagGaussian([n_dims])
+q0 = nf.distributions.base.GaussianMixture(10,n_dims)
 model = nf.NormalizingFlow(q0=q0, flows=flows)
 model = model.to(device)
-
-vae = DPNF(model,d,E,q,batch_size,clip,eps,delta,lr,iters,device)
+dp = False
+vae = DPNF(model,E,q,batch_size,clip,eps,delta,lr,dp,iters,device)
 if torch.cuda.is_available():
     vae.cuda()
 
 #optimizer = optim.SGD(vae.parameters(),lr=0.000001,momentum=0.9)
+train_loader = torch.utils.data.DataLoader(dataset=vae.train_dataset, batch_size=vae.BATCH_SIZE, shuffle=True)
+num_samples = 100
+samples = []
+for data in train_loader:
+    inputs, _ = data
+    samples.append(inputs)
+    if len(samples) >= num_samples:
+        break
 
-dp = False
+samples = torch.cat(samples, 0)[:num_samples].detach().view(num_samples, 1, 28, 28)
+grid = vutils.make_grid(samples, nrow=10, padding=2, normalize=True).cpu()
+grid_np = grid.numpy().transpose((1, 2, 0))
+
+plt.figure(figsize=(20, 20), dpi=300)
+plt.imshow(grid_np, cmap='viridis')  # Change 'viridis' to 'gray'
+plt.axis('off')  # to hide the axis
+torch.cuda.empty_cache()
+plt.savefig(f"images/NF.png")
+del train_loader
+
+print(model.sample(10)[0])
 print(lr,clip,'+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+print(model.sample(10)[0])
 for epoch in range(iters):
     if dp:
         vae.traindpmodel()
@@ -290,19 +336,14 @@ for epoch in range(iters):
     num_samples = 100
     samples,_ = vae.model.sample(num_samples)
     samples = samples.detach().view(num_samples, 1, 28, 28)
-
-    # Make a grid from the images
     grid = vutils.make_grid(samples, nrow=10, padding=2, normalize=True).cpu().detach()
-
-    # Convert grid to numpy for plotting
     grid_np = grid.numpy().transpose((1, 2, 0))
 
-    # Plot the grid
     plt.figure(figsize=(20, 20), dpi=300)
-    plt.imshow(grid_np, cmap='viridis')
+    plt.imshow(grid_np, cmap='viridis')  # Change 'viridis' to 'gray'    
     plt.axis('off')  # to hide the axis
     torch.cuda.empty_cache()
-    plt.savefig(f"images/clip_{clip}_lr_{lr}_epoch_{epoch}_sigma_{vae.sigma}.png")
+    plt.savefig(f"images/NF_{dp}_clip_{clip}_lr_{lr}_epoch_{epoch}_sigma_{vae.sigma}.png")
     plt.close()
     vae.model.train()
     torch.cuda.empty_cache()

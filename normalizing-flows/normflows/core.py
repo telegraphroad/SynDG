@@ -30,6 +30,8 @@ class NormalizingFlow(nn.Module):
         self.categoricals = categoricals
         self.vardeq_layes = {}
         self.device = device
+        #add trainable parameter alpha
+        self.alpha = nn.Parameter(torch.tensor(0.1,device=self.device),requires_grad=True)
         if categoricals is not None:
             for feature, num_categories in categoricals.items():
                 if vardeq_flow_type == 'shiftscale':
@@ -102,7 +104,7 @@ class NormalizingFlow(nn.Module):
             log_det += log_d
         return x, log_det
 
-    def forward_kld(self, x, robust=False, rmethod = 'geomed',extended=False):
+    def forward_kld(self, x, robust=False, rmethod = 'geomed',extended=False, truncated=None, return_samples=False):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -121,9 +123,104 @@ class NormalizingFlow(nn.Module):
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z)
             log_q += log_det
-        log_q += self.q0.log_prob(z)
+        if truncated == 'dynscale':
+            a = self.q0.a * 0.99
+            b = self.q0.b * 0.99
+            scale = (b - a) / (z.max() - z.min())
+            # scale = (b - a) / (100.0 - -100.0)
+            shift = a - z.min() * scale
+            # shift = a + 100 * scale
+            #print(f'==========={z.min().item()},{z.max().item()}===========')
+            # Apply affine transformation
+            z_transformed = z * scale + shift
+
+            #log_q += self.q0.log_prob(z_transformed)            
+            log_q += self.q0.log_prob(z_transformed) + torch.log(torch.abs(scale[0]))
+        elif truncated == 'fixedscale':
+            a = self.q0.a * 0.99
+            b = self.q0.b * 0.99
+            scale = (b - a) / (100000.0 - -100000.0)
+            # scale = (b - a) / (100.0 - -100.0)
+            shift = a - 10000 * scale
+            # shift = a + 100 * scale
+            #print(f'==========={z.min().item()},{z.max().item()}===========')
+            # Apply affine transformation
+            z_transformed = z * scale + shift
+
+            #log_q += self.q0.log_prob(z_transformed)            
+            log_q += self.q0.log_prob(z_transformed) + torch.log(torch.abs(scale[0]))
+        elif truncated == 'tanh':
+            # Apply tanh to reign in the samples
+            z_tanh = torch.tanh(z)
+            # Calculate the log-determinant of the Jacobian for the tanh operation
+            log_det_tanh = torch.log(1 - z_tanh ** 2 + 1e-6).sum(dim=1)  # Adding epsilon to avoid log(0)
+
+            # Scale and shift z to the interval [a, b]
+            a = self.q0.a
+            b = self.q0.b
+            z_scaled = a + 0.5 * (z_tanh + 1) * (b - a)
+            # Calculate the log-determinant of the Jacobian for the scaling operation
+            log_det_scale = torch.log(b - a) * z.size(1)
+
+            # Update log_q with the log-determinants of tanh and scaling
+            log_q += log_det_tanh + log_det_scale[0]
+        elif truncated == 'thfixedscale':
+            # Scale z before applying tanh to avoid saturation
+            alpha = 0.3
+            z *= alpha
+            # Calculate the log-determinant of the Jacobian for the scaling by alpha
+            log_det_alpha = torch.log(torch.abs(torch.tensor(alpha))) * z.size(1)
+
+            # Apply the tanh operation to map z to the range (-1, 1)
+            z_tanh = torch.tanh(z)
+            # Calculate the log-determinant of the Jacobian for the tanh operation
+            log_det_tanh = torch.log(1 - z_tanh ** 2 + 1e-6).sum(dim=1)  # Adding epsilon to avoid log(0)
+
+            # Scale and shift z to the interval [a, b]
+            a = self.q0.a
+            b = self.q0.b
+            z_scaled = a + 0.5 * (z_tanh + 1) * (b - a)
+            # Calculate the log-determinant of the Jacobian for the scaling operation
+            log_det_scale = torch.log(b - a) * z.size(1)
+
+            # Update log_q with the log-determinants of alpha scaling, tanh and scaling
+            log_q += log_det_alpha + log_det_tanh + log_det_scale[0]
+
+            # Use the log_prob of the truncated distribution
+            log_q += self.q0.log_prob(z_scaled)
+        elif truncated == 'thdynscale':
+            # Scale z before applying tanh to avoid saturation
+            
+            
+            z *= self.alpha
+            # Calculate the log-determinant of the Jacobian for the scaling by alpha
+            log_det_alpha = torch.log(torch.abs(torch.tensor(self.alpha))) * z.size(1)
+
+            # Apply the tanh operation to map z to the range (-1, 1)
+            z_tanh = torch.tanh(z)
+            # Calculate the log-determinant of the Jacobian for the tanh operation
+            log_det_tanh = torch.log(1 - z_tanh ** 2 + 1e-6).sum(dim=1)  # Adding epsilon to avoid log(0)
+
+            # Scale and shift z to the interval [a, b]
+            a = self.q0.a
+            b = self.q0.b
+            z_scaled = a + 0.5 * (z_tanh + 1) * (b - a)
+            # Calculate the log-determinant of the Jacobian for the scaling operation
+            log_det_scale = torch.log(b - a) * z.size(1)
+
+            # Update log_q with the log-determinants of alpha scaling, tanh and scaling
+            log_q += log_det_alpha + log_det_tanh + log_det_scale[0]
+
+            # Use the log_prob of the truncated distribution
+            log_q += self.q0.log_prob(z_scaled)
+        else:
+            log_q += self.q0.log_prob(z)
+
         if extended:
-            return log_q      
+            if return_samples:
+                return z,log_q
+            else:
+                return log_q      
         if robust:
             if rmethod == 'geomed':
                 return -compute_geometric_median(-log_q.cpu()).median.cuda()
@@ -132,7 +229,11 @@ class NormalizingFlow(nn.Module):
             elif rmethod == 'tukey':
                 return -utils.tukey_biweight_estimator(log_q)
         else:
-            return -torch.mean(log_q)
+            if return_samples:
+                return z,-torch.mean(log_q)
+            else:
+                
+                return -torch.mean(log_q)
 
     def reverse_kld(self, num_samples=1, beta=1.0, score_fn=True, robust=False):
         """Estimates reverse KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)

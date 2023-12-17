@@ -175,6 +175,7 @@ class DPVAE(nn.Module):
         
 
         for e in range(self.E):
+            np.random.seed()
             idx = np.where(np.random.rand(len(self.train_dataset.data[:])) < self.q)[0]
             sampled_dataset = TensorDataset(self.train_dataset.data[idx], self.train_dataset.targets[idx])
             sample_data_loader = DataLoader(dataset=sampled_dataset, batch_size=self.BATCH_SIZE, shuffle=True)
@@ -251,8 +252,8 @@ class DPVAE(nn.Module):
 # %%
 
 E = 10
-q = 0.2
-batch_size = 2048
+q = 0.1
+batch_size = 4096
 clip = 0.2
 x_dim=784
 h_dim1= 512
@@ -263,7 +264,7 @@ momentum=0.9
 C = 1
 eps = 4000.0
 delta = 1e-5
-iters = 25
+iters = 10
 device='cuda'
 args = parser.parse_args()
 
@@ -273,7 +274,7 @@ lr = args.lr
 
 client_num = 1
 
-d = datasets.FashionMNIST(root='./mnist_data/', train=True, transform=transforms.ToTensor(), download=True)
+#d = datasets.FashionMNIST(root='./mnist_data/', train=True, transform=transforms.ToTensor(), download=True)
 
 vae = DPVAE(E,q,batch_size,clip,eps,delta,lr,iters,device)
 if torch.cuda.is_available():
@@ -281,7 +282,7 @@ if torch.cuda.is_available():
 
 #optimizer = optim.SGD(vae.parameters(),lr=0.000001,momentum=0.9)
 
-dp = True
+dp = False
 for epoch in range(iters):
     if dp:
         vae.traindpmodel()
@@ -293,6 +294,9 @@ for epoch in range(iters):
         torch.cuda.empty_cache()
         vae.testmodel()
         torch.cuda.empty_cache()
+    print()
+    print("++++++++++++++++++++++++++++++++++++++++++++++Epoch: ", epoch)
+    print()
 
 vae.model.eval()
 

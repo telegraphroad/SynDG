@@ -21,7 +21,7 @@ from .base import (
     UniformGaussian,
 )
 from .base_extended import (
-    GeneralizedGaussianMixture,MultivariateStudentTDist,StudentTDistribution
+    GeneralizedGaussianMixture,MultivariateStudentTDist,StudentTDistribution,TruncatedNormal#,TruncatedGaussian
 )
 from .target import (
     Target,
