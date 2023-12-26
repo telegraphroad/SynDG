@@ -72,3 +72,53 @@ def residual(K=16,dim=2, hidden_units=64, hidden_layers=2):
         flows += [nf.flows.Residual(net, reduce_memory=True)]
         flows += [nf.flows.ActNorm(dim)]
     return flows
+
+def glow(K=16,dim=2, hidden_units=64, hidden_layers=2):
+    L = 0
+    input_shape = (dim,)
+    n_dims = np.prod(input_shape)
+    channels = 1
+    hidden_channels = 256
+    split_mode = 'channel'
+    scale = True
+    flows_ = []
+    for j in range(K):
+        flows_ += [nf.flows.GlowBlock(channels * 2 ** (L + 1), hidden_channels,
+                                    split_mode=split_mode, scale=scale)]
+
+    return flows_
+
+def glow_cifar10(L=3,K=16,dim=2, hidden_units=256):
+
+    input_shape = (3, 32, 32)
+    n_dims = np.prod(input_shape)
+    channels = 3
+    hidden_channels = hidden_units
+    split_mode = 'channel'
+    scale = True
+    num_classes = 10
+
+    # Set up flows, distributions and merge operations
+    q0 = []
+    merges = []
+    flows = []
+    for i in range(L):
+        flows_ = []
+        for j in range(K):
+            flows_ += [nf.flows.GlowBlock(channels * 2 ** (L + 1 - i), hidden_channels,
+                                        split_mode=split_mode, scale=scale)]
+        flows_ += [nf.flows.Squeeze()]
+        flows += [flows_]
+        if i > 0:
+            merges += [nf.flows.Merge()]
+            latent_shape = (input_shape[0] * 2 ** (L - i), input_shape[1] // 2 ** (L - i), 
+                            input_shape[2] // 2 ** (L - i))
+        else:
+            latent_shape = (input_shape[0] * 2 ** (L + 1), input_shape[1] // 2 ** L, 
+                            input_shape[2] // 2 ** L)
+        q0 += [nf.distributions.ClassCondDiagGaussian(latent_shape, num_classes)]
+
+
+    # Construct flow model with the multiscale architecture
+    model = nf.MultiscaleFlow(q0, flows, merges)
+    return model

@@ -221,16 +221,20 @@ class MaskedAffineFlow(Flow):
         if self.lipschitzconstrained:
             if self.func == 'tanh':
                 scale = 0.5 * (self.max - self.min) * (torch.tanh(scale) + 1) + self.min
-            else:
-                scale = self.min + (self.max - self.min) * torch.sigmoid(scale)
+            # else:
+            #     scale = self.min + (self.max - self.min) * torch.sigmoid(scale)
             if self.boundtranslate:
                 if self.func == 'tanh':
                     trans = 0.5 * (self.max - self.min) * (torch.tanh(trans) + 1) + self.min
-                else:
-                    trans = self.min + (self.max - self.min) * torch.sigmoid(trans)
+                # else:
+                #     trans = self.min + (self.max - self.min) * torch.sigmoid(trans)
 
         z_ = z_masked + (1 - self.b) * (z * torch.exp(scale) + trans)
-        log_det = torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
+        if self.lipschitzconstrained:
+            log_det_jacobian_tanh = torch.log(0.5 * (self.max - self.min) * (1 - torch.tanh(scale)**2) + 1e-9) 
+            log_det = torch.sum((1 - self.b) * (log_det_jacobian_tanh + scale), dim=list(range(1, self.b.dim())))
+        else:
+            log_det = torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
         return z_, log_det
 
     def inverse(self, z):
@@ -243,16 +247,20 @@ class MaskedAffineFlow(Flow):
         if self.lipschitzconstrained:
             if self.func == 'tanh':
                 scale = 0.5 * (self.max - self.min) * (torch.tanh(scale) + 1) + self.min
-            else:
-                scale = self.min + (self.max - self.min) * torch.sigmoid(scale)
+            # else:
+            #     scale = self.min + (self.max - self.min) * torch.sigmoid(scale)
             if self.boundtranslate:
                 if self.func == 'tanh':
                     trans = 0.5 * (self.max - self.min) * (torch.tanh(trans) + 1) + self.min
-                else:
-                    trans = self.min + (self.max - self.min) * torch.sigmoid(trans)
+                # else:
+                #     trans = self.min + (self.max - self.min) * torch.sigmoid(trans)
 
         z_ = z_masked + (1 - self.b) * (z - trans) * torch.exp(-scale)
-        log_det = -torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
+        if self.lipschitzconstrained:
+            log_det_jacobian_tanh = torch.log(0.5 * (self.max - self.min) * (1 - torch.tanh(scale)**2) + 1e-9)  # Added 1e-9 for numerical stability
+            log_det = -torch.sum((1 - self.b) * (scale + log_det_jacobian_tanh), dim=list(range(1, self.b.dim())))
+        else:
+            log_det = -torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
         return z_, log_det
 
 

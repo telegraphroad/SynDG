@@ -17,7 +17,7 @@ from torch.utils.data import Dataset, DataLoader
 import gc
 import sys
 
-from normflows.experiments.flowslib import planar, radial, nice, rnvp, nsp, iaf, residual
+from normflows.experiments.flowslib import planar, radial, nice, rnvp, nsp, iaf, residual, glow
 
 import torch
 from torch.utils.data import Dataset
@@ -342,15 +342,21 @@ rndadd = 0.5
 usestd = True
 useloc = True
 initp = 2.5
-batch_size = 199
+batch_size = 64
 
 
 dp = 'NF'
-
+dp = None
     # for w in list(reversed([64,128,192,256,378,512,768,1024,2048,4096,8192])):    
 _closs = 1e10
 torch.cuda.empty_cache()
 gc.collect()
+min = -1.
+max = 1.
+boundtranslate = True
+func = 'tanh'
+lipschitzconstrained = False
+
 try:
     del model, optimizer, flows, base
 except:
@@ -364,11 +370,13 @@ flows = []
 if fltyp == 'nsp':
     flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
 elif fltyp == 'rnvp':
-    flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+    flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml,lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)
 elif fltyp == 'residual':
     flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
 elif fltyp == 'nice':
     flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+elif fltyp == 'glow':
+    flows = glow(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
     
 
 trnbl = True
@@ -412,7 +420,8 @@ _stalecounter = 0
 pbar = tqdm(range(max_iter))
 # Prepare the data for KFold
 data = list(dataloader.dataset)
-kf = KFold(n_splits=10)
+nfolds = 3
+kf = KFold(n_splits=nfolds)
 
 # To store average log likelihood for each epoch
 avg_log_likelihoods = []
@@ -420,437 +429,53 @@ loss_hists = []
 dctr = -1
 rbst = False
 falseflag = False
-for train_index, test_index in kf.split(data):
-    for trunc in ['tanh','thfixedscale']:
-        flows = []
-        latent_size = len(my_dataset.__getitem__(0))
-        b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
-        flows = []
-        if fltyp == 'nsp':
-            flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-        elif fltyp == 'rnvp':
-            flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml,lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)
-        elif fltyp == 'residual':
-            flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-        elif fltyp == 'nice':
-            flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-        
-        try:
-            del model,base,optimizer
-            del best_params
-            del bestloss
-        except:
-            pass
+killflg = False
 
-        dctr += 1
-        # Reset the model and the best loss for each fold
-        base = nf.distributions.base.DiagGaussian(latent_size)
-        if dp == 'NF':
-            cmin = -2.0
-            cmax = 2.0   
-            import scipy.stats as stats
+min = 0.99
+max = 1.
+func = 'tanh'
+boundtranslate = True
+lipschitzconstrained = False
+for batch_size in [16,32,48,64,96,128,160,180]:
+    for train_index, test_index in kf.split(data):
+        for dp in ['NF',None]:
+            for trunc in ['tanh']:
+                for fltyp in ['nice']:
+                    killflg = False
+                    for cmin,cmax in [[-0.5,0.5],[-1.0,1.0],[-1.5,1.5],[-2.,2.],[-3.,3.]]:
+                        if killflg and dp is None:
+                            continue
+                        flows = []
+                        latent_size = len(my_dataset.__getitem__(0))
+                        b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+                        flows = []
+                        lipschitzconstrained = False
+                        if fltyp == 'nsp':
+                            flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                        elif fltyp == 'rnvp':
+                            flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml,lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)
+                        elif fltyp == 'residual':
+                            flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                        elif fltyp == 'nice':
+                            flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                        elif fltyp == 'glow':
+                            flows = glow(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
 
-            # Z-scores for 0.05% and 99.95% of the standard normal distribution
-            Z_a = stats.norm.ppf(0.0005)
-            Z_b = stats.norm.ppf(0.9995)
-
-            # Since the mean is 0, the equations to solve are:
-            # a = Z_a * sigma
-            # b = Z_b * sigma
-
-            # Solving these for sigma gives the same result, so we can just use one of them:
-            sigma = cmin / Z_a
-            sigma = 1.0
-
-            print("New sigma: ", sigma)        
-            base = nf.distributions.base_extended.TruncatedNormal(latent_size,0.,sigma, cmin, cmax)
-            #base = nf.distributions.base_extended.TruncatedGaussian(latent_size,0.,sigma, cmin, cmax,trainable=False)
-            if dctr < 1:
-                # pl = []
-                # for _i in range(50):
-                #     s = base.sample(60000000)
-                #     _pl = base.log_prob(s).exp().cpu().detach()
-                #     pl.append(_pl)
-                #     print(_i,':',np.log(torch.cat(pl).max().item()) - np.log(torch.cat(pl).min().item()))
-                # del s
-                # pl = torch.cat(pl)
-                mn = base.log_prob(base.a.view(1,10).to(torch.float64)).exp()
-                mx = base.log_prob(base.mean.view(1,10).to(torch.float64)).exp()
-                eps = np.log(mx[0].item()) - np.log(mn[0].item())
-                # del pl,_pl
-                gc.collect()
-                torch.cuda.empty_cache()
-                et,dt = calculate_privacy_loss(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss2(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss3(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss4(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss5(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss6(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss7(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss8(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                et,dt = calculate_privacy_loss9(max_iter, eps, 1e-5, batch_size, len(train_index))
-                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                truncated = True
-
-        model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=vlay, vardeq_flow_type='shiftscale')
-        model = model.to(device)
-
-
-
-
-
-        loss_hist = np.array([])
-
-        log_likelihoods = []
-
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
-        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, verbose=True)
-        target_epsilon = 1.0
-        if dp == 'DPSGD':
-            sigma=get_noise_multiplier(
-                            target_epsilon = target_epsilon,
-                            target_delta = 1.52e-5,
-                            sample_rate = batch_size/(len(dataloader.dataset)*0.9),
-                            epochs = max_iter,
-                        )
-
-            privacy_engine = PrivacyEngine(
-                        model,
-                        batch_size=batch_size,
-                        sample_size=len(dataloader.dataset)*0.9,
-                        noise_multiplier=sigma,
-                        epochs=max_iter,
-                        clipping_mode='MixOpt',
-                        origin_params=None,
-                    )
-            privacy_engine.attach(optimizer)
-
-
-
-
-
-
-
-
-
-
-        max_norm = 0.5
-        adjust_rate = 0.01
-
-        best_params = copy.deepcopy(model.state_dict())
-        bestloss = 1e10
-        _stalecounter = 0
-        pbar = tqdm(range(max_iter))
-
-        
-        bestloss = float('inf')
-        best_params = copy.deepcopy(model.state_dict())
-
-        # Create dataloaders for this fold
-        train_data = [data[i] for i in train_index]
-        test_data = [data[i] for i in test_index]
-        train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size)
-        test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size)
-        ctr = -1
-        for it in pbar:
-            ctr += 1
-            for i, features in enumerate(train_dataloader, 0):
-                optimizer.zero_grad()
-                x = features.to(device)
-                try:
-                    loss = model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc)    
-                    if ~(torch.isnan(loss) | torch.isinf(loss)):
-                        loss.backward()
-                        optimizer.step()
-                        with torch.no_grad():
-                            if loss.item()<bestloss:
-                                _s,_ = model.sample(1000)
-                                if (torch.isnan(_s).sum()==0 & torch.isinf(_s).sum()==0):
-                                
-                                    bestloss = copy.deepcopy(loss.item())
-                                    best_params = copy.deepcopy(model.state_dict())
-                                    pbar.set_description(f"Processing {it}, best loss={bestloss}")
-                    loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
-                    pbar.set_description(f"Processing {it}, best loss={bestloss}")
-                except Exception as e:
-                    if True:
-                        #print(e)
-                        with torch.no_grad():
-                            model.load_state_dict(best_params)
-            
-            scheduler.step(bestloss)
-
-            with torch.no_grad():
-                model.eval()
-                ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
-                ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
-                ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
-                ds_gn.dropna(inplace=True)
-                ds_gn.dropna(axis=1, inplace=True)
-                ds_gn.dropna(inplace=True)
-                dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
-                ds_gn = ds_gn.astype(dict_dtype)
-
-                #ds_gn.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
-                my_dataset.data.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_gen.csv')
-                nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
-
-                # Assuming real_data and synthetic_data are your dataframes
-                feature_names = my_dataset.data.columns
-
-                # List of categorical features
-                categorical_features = []
-
-                fig, axs = plt.subplots(2, 5, figsize=(20, 5))
-
-                for i, ax in enumerate(axs.flatten()):
-                    if i < len(feature_names):
-                        feature_name = feature_names[i]
-
-                        # If the feature is categorical
-                        if i in categorical_features:
-                            real_counts = my_dataset.data[feature_name].value_counts()
-                            synthetic_counts = ds_gn[feature_name].value_counts()
-                            all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
-                            
-                            ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
-                            ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
-                        else:
-                            sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
-                            sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
-
-                        ax.set_title(feature_name)
-                        ax.legend()
-                fig.suptitle(f'Fold {it}', fontsize=15)            
-                plt.tight_layout()
-                plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{ctr}_NICE.png')
-                plt.close()
-                model.train()  
-                del ds_gn
-
-
-
-
-
-            
-            pbar.set_description(f"Processing {it}, best loss={bestloss}")
-            with torch.no_grad():
-                model.eval()
-                total_log_likelihood = 0
-                for i, features in enumerate(test_dataloader, 0):
-                    x = features.to(device)
-                    total_log_likelihood += -model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc).to(torch.float64) *len(x)    
-                avg_log_likelihood = total_log_likelihood / len(test_data)
-                log_likelihoods.append(avg_log_likelihood.item())        
-                model.train()
-        avg_log_likelihoods.append([trunc,log_likelihoods])     
-        loss_hists.append([trunc,loss_hist])   
-        torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/NICE_loglikelihoods.pt')
-        torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/NICE_losshists.pt')
-
-        with torch.no_grad():
-            model.eval()
-            ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
-            ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
-            ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
-            ds_gn.dropna(inplace=True)
-            ds_gn.dropna(axis=1, inplace=True)
-            ds_gn.dropna(inplace=True)
-            dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
-            ds_gn = ds_gn.astype(dict_dtype)
-
-            #ds_gn.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
-            #my_dataset.data.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_gen.csv')
-            nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
-
-            # Assuming real_data and synthetic_data are your dataframes
-            feature_names = my_dataset.data.columns
-
-            # List of categorical features
-            categorical_features = []
-
-            fig, axs = plt.subplots(2, 5, figsize=(20, 5))
-
-            for i, ax in enumerate(axs.flatten()):
-                if i < len(feature_names):
-                    feature_name = feature_names[i]
-
-                    # If the feature is categorical
-                    if i in categorical_features:
-                        real_counts = my_dataset.data[feature_name].value_counts()
-                        synthetic_counts = ds_gn[feature_name].value_counts()
-                        all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
                         
-                        ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
-                        ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
-                    else:
-                        sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
-                        sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
+                        try:
+                            del model,base,optimizer
+                            del best_params
+                            del bestloss
+                        except:
+                            pass
 
-                    ax.set_title(feature_name)
-                    ax.legend()
-            fig.suptitle(f'Fold {it}', fontsize=15)            
-            plt.tight_layout()
-            plt.show()
-            model.train()  
-            torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/NICE_loglikelihoods.pt')
-            torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/NICE_losshists.pt')
-            del ds_gn
+                        dctr += 1
+                        # Reset the model and the best loss for each fold
+                        base = nf.distributions.base.DiagGaussian(latent_size)
+                        if dp == 'NF':
+                            lipschitzconstrained = True
+                            boundtranslate = True
 
-        torch.cuda.empty_cache()
-        gc.collect()
-        import imageio
-
-    # Get the file names of the images
-        img_files = [f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{i}_NICE.png' for i in range(ctr)]
-
-        # Read the images into memory
-        imgs = [imageio.imread(img_file) for img_file in img_files]
-
-        # Save the images as a GIF
-        imageio.mimsave(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_NICE.gif', imgs)
-        plt.figure()
-        plt.plot(loss_hist)
-        plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_NICE_loss.png')
-        
-del optimizer,scheduler,dataloader,flows    
-torch.cuda.empty_cache()
-gc.collect()
-
-# %%
-
-
-my_dataset = CSVDataset('/home/samiri/SynDG/DOFLOWS/lifesci.csv',categorical)
-
-categorical_qlevels = []
-vdeq_categoricals = {int(k): int(v) for k, v in zip(categorical, categorical_qlevels)}
-# Number of samples
-
-enable_cuda = True
-
-device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
-
-n_sammple = my_dataset.__len__()
-# Create the 2-dimensional instance
-loss_arr = []
-tests_arr = []
-_closs = 1e10
-_stalecounter = 0
-
-nl = 20
-w = 256
-ml = 4
-lr = 1e-5
-fltyp = 'rnvp'
-
-vlay = 0
-nsamp = 2048
-nmodes = 200
-rndadd = 0.5
-usestd = True
-useloc = True
-initp = 2.5
-batch_size = 199
-
-
-dp = 'NF'
-
-    # for w in list(reversed([64,128,192,256,378,512,768,1024,2048,4096,8192])):    
-_closs = 1e10
-torch.cuda.empty_cache()
-gc.collect()
-try:
-    del model, optimizer, flows, base
-except:
-    pass
-dataloader = DataLoader(my_dataset, batch_size=batch_size, shuffle=True)
-num_layers = nl
-flows = []
-latent_size = len(my_dataset.__getitem__(0))
-b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
-flows = []
-if fltyp == 'nsp':
-    flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-elif fltyp == 'rnvp':
-    flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-elif fltyp == 'residual':
-    flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-elif fltyp == 'nice':
-    flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
-    
-
-trnbl = True
-# base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=nmodes, rand_p=True, noise_scale=rndadd, dim=latent_size,loc=list(my_dataset.data.median()) if useloc else 0.,scale=list(my_dataset.data.std()) if usestd else 1.,p=initp,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
-
-#model = nf.NormalizingFlow(base, flows)
-loss_hists = np.array([])
-# optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
-# scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, verbose=True)
-# target_epsilon = 1.0
-# if dp == 'DPSGD':
-#     sigma=get_noise_multiplier(
-#                     target_epsilon = target_epsilon,
-#                     target_delta = 1.52e-5,
-#                     sample_rate = batch_size/(len(dataloader.dataset)*0.9),
-#                     epochs = max_iter,
-#                 )
-
-#     privacy_engine = PrivacyEngine(
-#                 model,
-#                 batch_size=batch_size,
-#                 sample_size=len(dataloader.dataset)*0.9,
-#                 noise_multiplier=sigma,
-#                 epochs=max_iter,
-#                 clipping_mode='MixOpt',
-#                 origin_params=None,
-#             )
-#     privacy_engine.attach(optimizer)
-
-
-
-
-
-max_norm = 0.5
-adjust_rate = 0.01
-num_samples = nsamp
-show_iter = 200
-max_iter = 15
-bestloss = 1e10
-_stalecounter = 0
-pbar = tqdm(range(max_iter))
-# Prepare the data for KFold
-data = list(dataloader.dataset)
-kf = KFold(n_splits=10)
-
-# To store average log likelihood for each epoch
-avg_log_likelihoods = []
-loss_hists = []
-dctr = -1
-rbst = False
-falseflag = False
-for lipschitzconstrained in [True,False]:
-    for min in [-1]:
-        for max in [1]:
-            for func in ['tanh','sigmoid']:
-                for boundtranslate in [True,False]:
-                    for train_index, test_index in kf.split(data):
-                        for trunc in ['tanh']:
-                            if lipschitzconstrained == False:
-                                falseflag = True
-                            if falseflag:
-                                break
-                            flows = []
-                            latent_size = len(my_dataset.__getitem__(0))
-                            b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
-                            flows = []
                             if fltyp == 'nsp':
                                 flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
                             elif fltyp == 'rnvp':
@@ -859,6 +484,295 @@ for lipschitzconstrained in [True,False]:
                                 flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
                             elif fltyp == 'nice':
                                 flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                            elif fltyp == 'glow':
+                                flows = glow(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+
+                            import scipy.stats as stats
+
+
+                            base = nf.distributions.base_extended.TruncatedNormal(latent_size,0.,1.0, cmin, cmax)
+                            #base = nf.distributions.base_extended.TruncatedGaussian(latent_size,0.,sigma, cmin, cmax,trainable=False)
+                            # pl = []
+                            # for _i in range(50):
+                            #     s = base.sample(60000000)
+                            #     _pl = base.log_prob(s).exp().cpu().detach()
+                            #     pl.append(_pl)
+                            #     print(_i,':',np.log(torch.cat(pl).max().item()) - np.log(torch.cat(pl).min().item()))
+                            # del s
+                            # pl = torch.cat(pl)
+                            mn = base.log_prob(base.a.view(1,10).to(torch.float64)).exp()
+                            mx = base.log_prob(base.mean.view(1,10).to(torch.float64)).exp()
+                            eps = np.log((0.5 * latent_size * cmax**2) * ((max/min)**(latent_size*nl)))
+                            # del pl,_pl
+                            gc.collect()
+                            torch.cuda.empty_cache()
+                            print(f'************************************************************{len(train_index)}')
+                            et1,dt1 = calculate_privacy_loss(max_iter, eps, 1e-5, batch_size, len(train_index))
+                            et = et1
+                            dt = dt1
+                            print(f'final consumed budget in interval {[cmin,cmax]} is {et1} with delta {dt1}')
+                            et2,dt2 = calculate_privacy_loss2(max_iter, eps, 1e-5, batch_size, len(train_index))
+                            print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+                            et3,dt3 = calculate_privacy_loss3(max_iter, eps, 1e-5, batch_size, len(train_index))
+                            print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+                            truncated = True
+                        else:
+                            #set et1 to et9 and dt1 to dt9 to zero:
+                            et1,dt1,et2,dt2,et3,dt3,et4,dt4,et5,dt5,et6,dt6,et7,dt7,et8,dt8,et9,dt9 = 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.
+                            truncated = False
+
+                        model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=vlay, vardeq_flow_type='shiftscale')
+                        model = model.to(device)
+
+
+
+                        print('===================================',dp,trunc,fltyp,cmin,cmax,et1,dt1,et2,dt2,et3,dt3)
+
+                        loss_hist = np.array([])
+
+                        log_likelihoods = []
+
+                        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
+                        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, verbose=True)
+                        target_epsilon = 1.0
+                        if dp == 'DPSGD':
+                            sigma=get_noise_multiplier(
+                                            target_epsilon = target_epsilon,
+                                            target_delta = 1.52e-5,
+                                            sample_rate = batch_size/(len(dataloader.dataset)*0.9),
+                                            epochs = max_iter,
+                                        )
+
+                            privacy_engine = PrivacyEngine(
+                                        model,
+                                        batch_size=batch_size,
+                                        sample_size=len(dataloader.dataset)*0.9,
+                                        noise_multiplier=sigma,
+                                        epochs=max_iter,
+                                        clipping_mode='MixOpt',
+                                        origin_params=None,
+                                    )
+                            privacy_engine.attach(optimizer)
+
+
+
+
+
+
+
+
+
+
+                        max_norm = 0.5
+                        adjust_rate = 0.01
+
+                        best_params = copy.deepcopy(model.state_dict())
+                        bestloss = 1e10
+                        _stalecounter = 0
+                        pbar = tqdm(range(max_iter))
+
+                        
+                        bestloss = float('inf')
+                        best_params = copy.deepcopy(model.state_dict())
+
+                        # Create dataloaders for this fold
+                        train_data = [data[i] for i in train_index]
+                        test_data = [data[i] for i in test_index]
+                        train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size)
+                        test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size)
+                        ctr = -1
+                        for it in pbar:
+                            ctr += 1
+                            for i, features in enumerate(train_dataloader, 0):
+                                optimizer.zero_grad()
+                                x = features.to(device)
+                                try:
+                                    loss = model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc if dp is not None else None)    
+                                    if ~(torch.isnan(loss) | torch.isinf(loss)):
+                                        loss.backward()
+                                        optimizer.step()
+                                        with torch.no_grad():
+                                            if loss.item()<bestloss:
+                                                _s,_ = model.sample(1000)
+                                                if (torch.isnan(_s).sum()==0 & torch.isinf(_s).sum()==0):
+                                                
+                                                    bestloss = copy.deepcopy(loss.item())
+                                                    best_params = copy.deepcopy(model.state_dict())
+                                                    pbar.set_description(f"Processing {it}, best loss={bestloss}")
+                                    loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
+                                    pbar.set_description(f"Processing {it}, best loss={bestloss}")
+                                except Exception as e:
+                                    if True:
+                                        #print(e)
+                                        with torch.no_grad():
+                                            model.load_state_dict(best_params)
+                            
+                            scheduler.step(bestloss)
+
+                            with torch.no_grad():
+                                model.eval()
+                                ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+                                ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
+                                ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
+                                ds_gn.dropna(inplace=True)
+                                ds_gn.dropna(axis=1, inplace=True)
+                                ds_gn.dropna(inplace=True)
+                                dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
+                                ds_gn = ds_gn.astype(dict_dtype)
+
+                                #ds_gn.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
+                                my_dataset.data.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_gen.csv')
+                                nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
+
+                                # Assuming real_data and synthetic_data are your dataframes
+                                feature_names = my_dataset.data.columns
+
+                                # List of categorical features
+                                categorical_features = []
+
+                                fig, axs = plt.subplots(2, 5, figsize=(20, 5))
+
+                                for i, ax in enumerate(axs.flatten()):
+                                    if i < len(feature_names):
+                                        feature_name = feature_names[i]
+
+                                        # If the feature is categorical
+                                        if i in categorical_features:
+                                            real_counts = my_dataset.data[feature_name].value_counts()
+                                            synthetic_counts = ds_gn[feature_name].value_counts()
+                                            all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
+                                            
+                                            ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
+                                            ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
+                                        else:
+                                            sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
+                                            sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
+
+                                        ax.set_title(feature_name)
+                                        ax.legend()
+                                fig.suptitle(f'Fold {it}', fontsize=15)            
+                                plt.tight_layout()
+                                plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{ctr}_NICE.png')
+                                plt.close()
+                                model.train()  
+                                del ds_gn
+
+
+
+
+
+                            
+                            pbar.set_description(f"Processing batch {it}, best loss={bestloss}")
+                            with torch.no_grad():
+                                model.eval()
+                                total_log_likelihood = 0
+                                for i, features in enumerate(test_dataloader, 0):
+                                    x = features.to(device)
+                                    total_log_likelihood += -model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc if dp is not None else None).to(torch.float64) *len(x)    
+                                avg_log_likelihood = total_log_likelihood / len(test_data)
+                                log_likelihoods.append(avg_log_likelihood.item())        
+                                model.train()
+                        avg_log_likelihoods.append([dp,trunc,fltyp,cmin,cmax,min,batch_size,et1,dt1,et2,dt2,et3,dt3,log_likelihoods,model])     
+                        loss_hists.append([dp,trunc,fltyp,cmin,cmax,min,batch_size,loss_hist])   
+                        torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods.pt')
+                        torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/losshists.pt')
+
+                        with torch.no_grad():
+                            model.eval()
+                            ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+                            ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
+                            ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
+                            ds_gn.dropna(inplace=True)
+                            ds_gn.dropna(axis=1, inplace=True)
+                            ds_gn.dropna(inplace=True)
+                            dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
+                            ds_gn = ds_gn.astype(dict_dtype)
+
+                            #ds_gn.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
+                            #my_dataset.data.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_gen.csv')
+                            nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
+
+                            # Assuming real_data and synthetic_data are your dataframes
+                            feature_names = my_dataset.data.columns
+
+                            # List of categorical features
+                            categorical_features = []
+
+                            fig, axs = plt.subplots(2, 5, figsize=(20, 5))
+
+                            for i, ax in enumerate(axs.flatten()):
+                                if i < len(feature_names):
+                                    feature_name = feature_names[i]
+
+                                    # If the feature is categorical
+                                    if i in categorical_features:
+                                        real_counts = my_dataset.data[feature_name].value_counts()
+                                        synthetic_counts = ds_gn[feature_name].value_counts()
+                                        all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
+                                        
+                                        ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
+                                        ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
+                                    else:
+                                        sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
+                                        sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
+
+                                    ax.set_title(feature_name)
+                                    ax.legend()
+                            fig.suptitle(f'Fold {it}', fontsize=15)            
+                            plt.tight_layout()
+                            plt.show()
+                            model.train()  
+                            torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods.pt')
+                            torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/losshists.pt')
+                            del ds_gn
+
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        import imageio
+
+                    # Get the file names of the images
+                        img_files = [f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{i}_NICE.png' for i in range(ctr)]
+
+                        # Read the images into memory
+                        imgs = [imageio.imread(img_file) for img_file in img_files]
+
+                        # Save the images as a GIF
+                        imageio.mimsave(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_NICE.gif', imgs)
+                        plt.figure()
+                        plt.plot(loss_hist)
+                        plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_NICE_loss.png')
+                        killflg = True
+                        print('===================================',dp,trunc,fltyp,cmin,cmax,et1,dt1,et2,dt2,et3,dt3)
+            
+
+
+
+for min in [0.99,0.98,0.97,0.96,0.95,0.94,0.93,0.92,0.91,0.9,0.89,0.88,0.87,0.86,0.85,0.84,0.83,0.82,0.81,0.80]:
+    for batch_size in [16,32,48,64,96,128,160,180]:
+        for train_index, test_index in kf.split(data):
+            for dp in ['NF',None]:
+                for trunc in ['tanh']:
+                    for fltyp in ['rnvp']:
+                        killflg = False
+                        for cmin,cmax in [[-0.5,0.5],[-1.0,1.0],[-1.5,1.5],[-2.,2.],[-3.,3.]]:
+                            if killflg and dp is None:
+                                continue
+                            flows = []
+                            latent_size = len(my_dataset.__getitem__(0))
+                            b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+                            flows = []
+                            lipschitzconstrained = False
+                            if fltyp == 'nsp':
+                                flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                            elif fltyp == 'rnvp':
+                                flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml,lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)
+                            elif fltyp == 'residual':
+                                flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                            elif fltyp == 'nice':
+                                flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                            elif fltyp == 'glow':
+                                flows = glow(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+
                             
                             try:
                                 del model,base,optimizer
@@ -871,50 +785,60 @@ for lipschitzconstrained in [True,False]:
                             # Reset the model and the best loss for each fold
                             base = nf.distributions.base.DiagGaussian(latent_size)
                             if dp == 'NF':
-                                cmin = -2.
-                                cmax = 2.   
+                                lipschitzconstrained = True
+                                boundtranslate = True
+
+                                if fltyp == 'nsp':
+                                    flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                                elif fltyp == 'rnvp':
+                                    flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml,lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)
+                                elif fltyp == 'residual':
+                                    flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                                elif fltyp == 'nice':
+                                    flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                                elif fltyp == 'glow':
+                                    flows = glow(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+
                                 import scipy.stats as stats
 
-                                # Z-scores for 0.05% and 99.95% of the standard normal distribution
-                                Z_a = stats.norm.ppf(0.0005)
-                                Z_b = stats.norm.ppf(0.9995)
 
-                                # Since the mean is 0, the equations to solve are:
-                                # a = Z_a * sigma
-                                # b = Z_b * sigma
-
-                                # Solving these for sigma gives the same result, so we can just use one of them:
-                                sigma = cmin / Z_a
-                                sigma = 1.0
-
-                                print("New sigma: ", sigma)        
-                                base = nf.distributions.base_extended.TruncatedNormal(latent_size,0.,sigma, cmin, cmax)
+                                base = nf.distributions.base_extended.TruncatedNormal(latent_size,0.,1.0, cmin, cmax)
                                 #base = nf.distributions.base_extended.TruncatedGaussian(latent_size,0.,sigma, cmin, cmax,trainable=False)
-                                if dctr < 1:
-                                    # pl = []
-                                    # for _i in range(50):
-                                    #     s = base.sample(60000000)
-                                    #     _pl = base.log_prob(s).exp().cpu().detach()
-                                    #     pl.append(_pl)
-                                    #     print(_i,':',np.log(torch.cat(pl).max().item()) - np.log(torch.cat(pl).min().item()))
-                                    # del s
-                                    # pl = torch.cat(pl)
-                                    mn = base.log_prob(base.a.view(1,10).to(torch.float64)).exp()
-                                    mx = base.log_prob(base.mean.view(1,10).to(torch.float64)).exp()
-                                    eps = np.log(mx[0].item()) - np.log(mn[0].item())
-                                    # del pl,_pl
-                                    gc.collect()
-                                    torch.cuda.empty_cache()
-                                    et,dt = calculate_privacy_loss(max_iter, eps, 1e-4, batch_size, len(train_index))
-                                    print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
-                                    truncated = True
+                                # pl = []
+                                # for _i in range(50):
+                                #     s = base.sample(60000000)
+                                #     _pl = base.log_prob(s).exp().cpu().detach()
+                                #     pl.append(_pl)
+                                #     print(_i,':',np.log(torch.cat(pl).max().item()) - np.log(torch.cat(pl).min().item()))
+                                # del s
+                                # pl = torch.cat(pl)
+                                mn = base.log_prob(base.a.view(1,10).to(torch.float64)).exp()
+                                mx = base.log_prob(base.mean.view(1,10).to(torch.float64)).exp()
+                                eps = np.log((0.5 * latent_size * cmax**2) * ((max/min)**(latent_size*nl)))
+                                # del pl,_pl
+                                gc.collect()
+                                torch.cuda.empty_cache()
+                                print(f'************************************************************{len(train_index)}')
+                                et1,dt1 = calculate_privacy_loss(max_iter, eps, 1e-5, batch_size, len(train_index))
+                                et = et1
+                                dt = dt1
+                                print(f'final consumed budget in interval {[cmin,cmax]} is {et1} with delta {dt1}')
+                                et2,dt2 = calculate_privacy_loss2(max_iter, eps, 1e-5, batch_size, len(train_index))
+                                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+                                et3,dt3 = calculate_privacy_loss3(max_iter, eps, 1e-5, batch_size, len(train_index))
+                                print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+                                truncated = True
+                            else:
+                                #set et1 to et9 and dt1 to dt9 to zero:
+                                et1,dt1,et2,dt2,et3,dt3,et4,dt4,et5,dt5,et6,dt6,et7,dt7,et8,dt8,et9,dt9 = 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.
+                                truncated = False
 
                             model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=vlay, vardeq_flow_type='shiftscale')
                             model = model.to(device)
 
 
 
-
+                            print('===================================',dp,trunc,fltyp,cmin,cmax,et1,dt1,et2,dt2,et3,dt3)
 
                             loss_hist = np.array([])
 
@@ -975,7 +899,7 @@ for lipschitzconstrained in [True,False]:
                                     optimizer.zero_grad()
                                     x = features.to(device)
                                     try:
-                                        loss = model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc)    
+                                        loss = model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc if dp is not None else None)    
                                         if ~(torch.isnan(loss) | torch.isinf(loss)):
                                             loss.backward()
                                             optimizer.step()
@@ -1040,7 +964,7 @@ for lipschitzconstrained in [True,False]:
                                             ax.legend()
                                     fig.suptitle(f'Fold {it}', fontsize=15)            
                                     plt.tight_layout()
-                                    plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{ctr}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}.png')
+                                    plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{ctr}_NICE.png')
                                     plt.close()
                                     model.train()  
                                     del ds_gn
@@ -1050,18 +974,18 @@ for lipschitzconstrained in [True,False]:
 
 
                                 
-                                pbar.set_description(f"Processing {it}, best loss={bestloss}")
+                                pbar.set_description(f"Processing batch {it}, best loss={bestloss}")
                                 with torch.no_grad():
                                     model.eval()
                                     total_log_likelihood = 0
                                     for i, features in enumerate(test_dataloader, 0):
                                         x = features.to(device)
-                                        total_log_likelihood += -model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc).to(torch.float64) *len(x)    
+                                        total_log_likelihood += -model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc if dp is not None else None).to(torch.float64) *len(x)    
                                     avg_log_likelihood = total_log_likelihood / len(test_data)
                                     log_likelihoods.append(avg_log_likelihood.item())        
                                     model.train()
-                            avg_log_likelihoods.append([trunc,lipschitzconstrained,min,max,func,boundtranslate,log_likelihoods])     
-                            loss_hists.append([trunc,lipschitzconstrained,min,max,func,boundtranslate,loss_hist])   
+                            avg_log_likelihoods.append([dp,trunc,fltyp,cmin,cmax,min,batch_size,et1,dt1,et2,dt2,et3,dt3,log_likelihoods,model])     
+                            loss_hists.append([dp,trunc,fltyp,cmin,cmax,min,batch_size,loss_hist])   
                             torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods.pt')
                             torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/losshists.pt')
 
@@ -1119,25 +1043,436 @@ for lipschitzconstrained in [True,False]:
                             import imageio
 
                         # Get the file names of the images
-                            img_files = [f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{i}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}.png' for i in range(ctr)]
+                            img_files = [f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{i}_NICE.png' for i in range(ctr)]
 
                             # Read the images into memory
                             imgs = [imageio.imread(img_file) for img_file in img_files]
 
                             # Save the images as a GIF
-                            imageio.mimsave(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}.gif', imgs)
+                            imageio.mimsave(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_NICE.gif', imgs)
                             plt.figure()
                             plt.plot(loss_hist)
-                            plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}_loss.png')
-        
+                            plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_NICE_loss.png')
+                            killflg = True
+                            print('===================================',dp,trunc,fltyp,cmin,cmax,et1,dt1,et2,dt2,et3,dt3)
+
+
+import sys
+sys.exit()
+
 del optimizer,scheduler,dataloader,flows    
 torch.cuda.empty_cache()
 gc.collect()
-import sys
-sys.exit()
-loss_arr.append([nl,w,bestloss])
-torch.cuda.empty_cache()
-gc.collect()
+
+# %%
+
+
+# my_dataset = CSVDataset('/home/samiri/SynDG/DOFLOWS/lifesci.csv',categorical)
+
+# categorical_qlevels = []
+# vdeq_categoricals = {int(k): int(v) for k, v in zip(categorical, categorical_qlevels)}
+# # Number of samples
+
+# enable_cuda = True
+
+# device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
+
+# n_sammple = my_dataset.__len__()
+# # Create the 2-dimensional instance
+# loss_arr = []
+# tests_arr = []
+# _closs = 1e10
+# _stalecounter = 0
+
+# nl = 20
+# w = 256
+# ml = 4
+# lr = 1e-5
+# fltyp = 'rnvp'
+
+# vlay = 0
+# nsamp = 2048
+# nmodes = 200
+# rndadd = 0.5
+# usestd = True
+# useloc = True
+# initp = 2.5
+# batch_size = 199
+
+
+# dp = 'NF'
+
+#     # for w in list(reversed([64,128,192,256,378,512,768,1024,2048,4096,8192])):    
+# _closs = 1e10
+# torch.cuda.empty_cache()
+# gc.collect()
+# try:
+#     del model, optimizer, flows, base
+# except:
+#     pass
+# dataloader = DataLoader(my_dataset, batch_size=batch_size, shuffle=True)
+# num_layers = nl
+# flows = []
+# latent_size = len(my_dataset.__getitem__(0))
+# b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+# flows = []
+# if fltyp == 'nsp':
+#     flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+# elif fltyp == 'rnvp':
+#     flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+# elif fltyp == 'residual':
+#     flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+# elif fltyp == 'nice':
+#     flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+    
+
+# trnbl = True
+# # base = nf.distributions.base_extended.GeneralizedGaussianMixture(n_modes=nmodes, rand_p=True, noise_scale=rndadd, dim=latent_size,loc=list(my_dataset.data.median()) if useloc else 0.,scale=list(my_dataset.data.std()) if usestd else 1.,p=initp,device=device,trainable_loc=trnbl, trainable_scale=trnbl,trainable_p=trnbl,trainable_weights=trnbl,ds=my_dataset)
+
+# #model = nf.NormalizingFlow(base, flows)
+# loss_hists = np.array([])
+# # optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
+# # scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, verbose=True)
+# # target_epsilon = 1.0
+# # if dp == 'DPSGD':
+# #     sigma=get_noise_multiplier(
+# #                     target_epsilon = target_epsilon,
+# #                     target_delta = 1.52e-5,
+# #                     sample_rate = batch_size/(len(dataloader.dataset)*0.9),
+# #                     epochs = max_iter,
+# #                 )
+
+# #     privacy_engine = PrivacyEngine(
+# #                 model,
+# #                 batch_size=batch_size,
+# #                 sample_size=len(dataloader.dataset)*0.9,
+# #                 noise_multiplier=sigma,
+# #                 epochs=max_iter,
+# #                 clipping_mode='MixOpt',
+# #                 origin_params=None,
+# #             )
+# #     privacy_engine.attach(optimizer)
+
+
+
+
+
+# max_norm = 0.5
+# adjust_rate = 0.01
+# num_samples = nsamp
+# show_iter = 200
+# max_iter = 15
+# bestloss = 1e10
+# _stalecounter = 0
+# pbar = tqdm(range(max_iter))
+# # Prepare the data for KFold
+# data = list(dataloader.dataset)
+# kf = KFold(n_splits=10)
+
+# # To store average log likelihood for each epoch
+# avg_log_likelihoods = []
+# loss_hists = []
+# dctr = -1
+# rbst = False
+# falseflag = False
+
+ 
+#                     for train_index, test_index in kf.split(data):
+#                         for trunc in ['tanh']:
+#                             if lipschitzconstrained == False:
+#                                 falseflag = True
+#                             if falseflag:
+#                                 break
+#                             flows = []
+#                             latent_size = len(my_dataset.__getitem__(0))
+#                             b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+#                             flows = []
+#                             if fltyp == 'nsp':
+#                                 flows = nsp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+#                             elif fltyp == 'rnvp':
+#                                 flows = rnvp(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml,lipschitzconstrained=lipschitzconstrained,min=min,max=max,func=func,boundtranslate=boundtranslate)
+#                             elif fltyp == 'residual':
+#                                 flows = residual(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+#                             elif fltyp == 'nice':
+#                                 flows = nice(K=nl,dim=latent_size, hidden_units=w, hidden_layers=ml)
+                            
+#                             try:
+#                                 del model,base,optimizer
+#                                 del best_params
+#                                 del bestloss
+#                             except:
+#                                 pass
+
+#                             dctr += 1
+#                             # Reset the model and the best loss for each fold
+#                             base = nf.distributions.base.DiagGaussian(latent_size)
+#                             if dp == 'NF':
+#                                 lipschitzconstrained = True
+#                                 cmin = -1.
+#                                 cmax = 1.   
+#                                 import scipy.stats as stats
+
+#                                 # Z-scores for 0.05% and 99.95% of the standard normal distribution
+#                                 Z_a = stats.norm.ppf(0.0005)
+#                                 Z_b = stats.norm.ppf(0.9995)
+
+#                                 # Since the mean is 0, the equations to solve are:
+#                                 # a = Z_a * sigma
+#                                 # b = Z_b * sigma
+
+#                                 # Solving these for sigma gives the same result, so we can just use one of them:
+#                                 sigma = cmin / Z_a
+#                                 sigma = 1.0
+
+#                                 print("New sigma: ", sigma)        
+#                                 base = nf.distributions.base_extended.TruncatedNormal(latent_size,0.,sigma, cmin, cmax)
+#                                 #base = nf.distributions.base_extended.TruncatedGaussian(latent_size,0.,sigma, cmin, cmax,trainable=False)
+#                                 if dctr < 1:
+#                                     # pl = []
+#                                     # for _i in range(50):
+#                                     #     s = base.sample(60000000)
+#                                     #     _pl = base.log_prob(s).exp().cpu().detach()
+#                                     #     pl.append(_pl)
+#                                     #     print(_i,':',np.log(torch.cat(pl).max().item()) - np.log(torch.cat(pl).min().item()))
+#                                     # del s
+#                                     # pl = torch.cat(pl)
+#                                     mn = base.log_prob(base.a.view(1,10).to(torch.float64)).exp()
+#                                     mx = base.log_prob(base.mean.view(1,10).to(torch.float64)).exp()
+#                                     eps = np.log(mx[0].item()) - np.log(mn[0].item())
+#                                     # del pl,_pl
+#                                     gc.collect()
+#                                     torch.cuda.empty_cache()
+#                                     et,dt = calculate_privacy_loss(max_iter, eps, 1e-4, batch_size, len(train_index))
+#                                     print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+#                                     truncated = True
+
+#                             model = nf.NormalizingFlow(base, flows,categoricals=vdeq_categoricals, vardeq_layers=vlay, vardeq_flow_type='shiftscale')
+#                             model = model.to(device)
+
+
+
+
+
+#                             loss_hist = np.array([])
+
+#                             log_likelihoods = []
+
+#                             optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=lr/10)
+#                             scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20, verbose=True)
+#                             target_epsilon = 1.0
+#                             if dp == 'DPSGD':
+#                                 sigma=get_noise_multiplier(
+#                                                 target_epsilon = target_epsilon,
+#                                                 target_delta = 1.52e-5,
+#                                                 sample_rate = batch_size/(len(dataloader.dataset)*0.9),
+#                                                 epochs = max_iter,
+#                                             )
+
+#                                 privacy_engine = PrivacyEngine(
+#                                             model,
+#                                             batch_size=batch_size,
+#                                             sample_size=len(dataloader.dataset)*0.9,
+#                                             noise_multiplier=sigma,
+#                                             epochs=max_iter,
+#                                             clipping_mode='MixOpt',
+#                                             origin_params=None,
+#                                         )
+#                                 privacy_engine.attach(optimizer)
+
+
+
+
+
+
+
+
+
+
+#                             max_norm = 0.5
+#                             adjust_rate = 0.01
+
+#                             best_params = copy.deepcopy(model.state_dict())
+#                             bestloss = 1e10
+#                             _stalecounter = 0
+#                             pbar = tqdm(range(max_iter))
+
+                            
+#                             bestloss = float('inf')
+#                             best_params = copy.deepcopy(model.state_dict())
+
+#                             # Create dataloaders for this fold
+#                             train_data = [data[i] for i in train_index]
+#                             test_data = [data[i] for i in test_index]
+#                             train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=batch_size)
+#                             test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size)
+#                             ctr = -1
+#                             for it in pbar:
+#                                 ctr += 1
+#                                 for i, features in enumerate(train_dataloader, 0):
+#                                     optimizer.zero_grad()
+#                                     x = features.to(device)
+#                                     try:
+#                                         loss = model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc)    
+#                                         if ~(torch.isnan(loss) | torch.isinf(loss)):
+#                                             loss.backward()
+#                                             optimizer.step()
+#                                             with torch.no_grad():
+#                                                 if loss.item()<bestloss:
+#                                                     _s,_ = model.sample(1000)
+#                                                     if (torch.isnan(_s).sum()==0 & torch.isinf(_s).sum()==0):
+                                                    
+#                                                         bestloss = copy.deepcopy(loss.item())
+#                                                         best_params = copy.deepcopy(model.state_dict())
+#                                                         pbar.set_description(f"Processing {it}, best loss={bestloss}")
+#                                         loss_hist = np.append(loss_hist, loss.to('cpu').data.numpy())
+#                                         pbar.set_description(f"Processing {it}, best loss={bestloss}")
+#                                     except Exception as e:
+#                                         if True:
+#                                             #print(e)
+#                                             with torch.no_grad():
+#                                                 model.load_state_dict(best_params)
+                                
+#                                 scheduler.step(bestloss)
+
+#                                 with torch.no_grad():
+#                                     model.eval()
+#                                     ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+#                                     ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
+#                                     ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
+#                                     ds_gn.dropna(inplace=True)
+#                                     ds_gn.dropna(axis=1, inplace=True)
+#                                     ds_gn.dropna(inplace=True)
+#                                     dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
+#                                     ds_gn = ds_gn.astype(dict_dtype)
+
+#                                     #ds_gn.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
+#                                     my_dataset.data.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_gen.csv')
+#                                     nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
+
+#                                     # Assuming real_data and synthetic_data are your dataframes
+#                                     feature_names = my_dataset.data.columns
+
+#                                     # List of categorical features
+#                                     categorical_features = []
+
+#                                     fig, axs = plt.subplots(2, 5, figsize=(20, 5))
+
+#                                     for i, ax in enumerate(axs.flatten()):
+#                                         if i < len(feature_names):
+#                                             feature_name = feature_names[i]
+
+#                                             # If the feature is categorical
+#                                             if i in categorical_features:
+#                                                 real_counts = my_dataset.data[feature_name].value_counts()
+#                                                 synthetic_counts = ds_gn[feature_name].value_counts()
+#                                                 all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
+                                                
+#                                                 ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
+#                                                 ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
+#                                             else:
+#                                                 sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
+#                                                 sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
+
+#                                             ax.set_title(feature_name)
+#                                             ax.legend()
+#                                     fig.suptitle(f'Fold {it}', fontsize=15)            
+#                                     plt.tight_layout()
+#                                     plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{ctr}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}.png')
+#                                     plt.close()
+#                                     model.train()  
+#                                     del ds_gn
+
+
+
+
+
+                                
+#                                 pbar.set_description(f"Processing {it}, best loss={bestloss}")
+#                                 with torch.no_grad():
+#                                     model.eval()
+#                                     total_log_likelihood = 0
+#                                     for i, features in enumerate(test_dataloader, 0):
+#                                         x = features.to(device)
+#                                         total_log_likelihood += -model.forward_kld(x, robust=rbst,rmethod='med',truncated=trunc).to(torch.float64) *len(x)    
+#                                     avg_log_likelihood = total_log_likelihood / len(test_data)
+#                                     log_likelihoods.append(avg_log_likelihood.item())        
+#                                     model.train()
+#                             avg_log_likelihoods.append([trunc,lipschitzconstrained,min,max,func,boundtranslate,log_likelihoods,model])     
+#                             loss_hists.append([trunc,lipschitzconstrained,min,max,func,boundtranslate,loss_hist])   
+#                             torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods_2.pt')
+#                             torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/losshists_2.pt')
+
+#                             with torch.no_grad():
+#                                 model.eval()
+#                                 ds_gn = model.sample(len(my_dataset.data))[0].detach().cpu().numpy()
+#                                 ds_gn = pd.DataFrame(ds_gn, columns=my_dataset.data.columns)
+#                                 ds_gn.replace([np.inf, -np.inf], np.nan, inplace=True)
+#                                 ds_gn.dropna(inplace=True)
+#                                 ds_gn.dropna(axis=1, inplace=True)
+#                                 ds_gn.dropna(inplace=True)
+#                                 dict_dtype = my_dataset.data.dtypes.apply(lambda x: x.name).to_dict()
+#                                 ds_gn = ds_gn.astype(dict_dtype)
+
+#                                 #ds_gn.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.csv')
+#                                 #my_dataset.data.to_csv(f'/home/samiri/SynDG/DOFLOWS/lifesci_gen.csv')
+#                                 nan_or_inf_df = ds_gn.isna() | np.isinf(ds_gn)
+
+#                                 # Assuming real_data and synthetic_data are your dataframes
+#                                 feature_names = my_dataset.data.columns
+
+#                                 # List of categorical features
+#                                 categorical_features = []
+
+#                                 fig, axs = plt.subplots(2, 5, figsize=(20, 5))
+
+#                                 for i, ax in enumerate(axs.flatten()):
+#                                     if i < len(feature_names):
+#                                         feature_name = feature_names[i]
+
+#                                         # If the feature is categorical
+#                                         if i in categorical_features:
+#                                             real_counts = my_dataset.data[feature_name].value_counts()
+#                                             synthetic_counts = ds_gn[feature_name].value_counts()
+#                                             all_categories = list(set(real_counts.index) | set(synthetic_counts.index))
+                                            
+#                                             ax.bar(all_categories, [real_counts.get(category, 0) for category in all_categories], color='blue', alpha=0.5, label='Real')
+#                                             ax.bar(all_categories, [synthetic_counts.get(category, 0) for category in all_categories], color='red', alpha=0.5, label='Synthetic')
+#                                         else:
+#                                             sns.kdeplot(my_dataset.data[feature_name], ax=ax, color='blue', label='Real')
+#                                             sns.kdeplot(ds_gn[feature_name], ax=ax, color='red', label='Synthetic')
+
+#                                         ax.set_title(feature_name)
+#                                         ax.legend()
+#                                 fig.suptitle(f'Fold {it}', fontsize=15)            
+#                                 plt.tight_layout()
+#                                 plt.show()
+#                                 model.train()  
+#                                 torch.save(avg_log_likelihoods,f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods_2.pt')
+#                                 torch.save(loss_hists,f'/home/samiri/SynDG/DOFLOWS/images/losshists_2.pt')
+#                                 del ds_gn
+
+#                             torch.cuda.empty_cache()
+#                             gc.collect()
+#                             import imageio
+
+#                         # Get the file names of the images
+#                             img_files = [f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{i}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}.png' for i in range(ctr)]
+
+#                             # Read the images into memory
+#                             imgs = [imageio.imread(img_file) for img_file in img_files]
+
+#                             # Save the images as a GIF
+#                             imageio.mimsave(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}.gif', imgs)
+#                             plt.figure()
+#                             plt.plot(loss_hist)
+#                             plt.savefig(f'/home/samiri/SynDG/DOFLOWS/images/lifesci_{trunc}_{dctr}_{lipschitzconstrained}_{min}_{max}_{func}_{boundtranslate}_loss.png')
+        
+# del optimizer,scheduler,dataloader,flows    
+# torch.cuda.empty_cache()
+# gc.collect()
+# loss_arr.append([nl,w,bestloss])
+# torch.cuda.empty_cache()
+# gc.collect()
 
 # torch.save(model,f'/home/samiri/SynDG/DOFLOWS/lifesci_{dp}_{nl}_{w}_{ml}_{lr}_{fltyp}_{rbst}_{vlay}_{nsamp}_{nmodes}_{rndadd}_{useloc}_{usestd}_{initp}.pt')
 # with torch.no_grad():
@@ -1206,21 +1541,62 @@ gc.collect()
 import torch
 import pandas as pd
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+max_iter = 15
+batch_size = 199
+dssize = 24059
 avg_log_likelihoods = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods.pt')
 loss_hists = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/losshists.pt')
 # avg_log_likelihoods = [i[1] for i in avg_log_likelihoods if i[0] == 'tanh']
 # loss_hists = [i[1] for i in loss_hists if i[0] == 'tanh']
+
+# %%
+df = pd.DataFrame(avg_log_likelihoods)
+df
+
+df = df[df[2] == 'nice']
+plt.figure(figsize=(10, 8))
+for typ in ['NF']:#df[0].unique():
+    df2 = df[df[0]==typ]
+    for b in df[3].unique():
+        df1 = df2[df2[3]==b]
+        df1 = pd.DataFrame([i[:] for i in df1[23].values]).T
+        mean = df1.mean(axis=1)
+        std_error = df1.sem(axis=1)
+        #
+        eps = (0.5)*(10)*(b**2)
+        et1,dt1 = calculate_privacy_loss(max_iter, eps, 1e-5, batch_size, dssize)
+        et = et1
+        dt = dt1
+        print(f'final consumed budget in interval {[cmin,cmax]} is {et1} with delta {dt1}')
+        et2,dt2 = calculate_privacy_loss2(max_iter, eps, 1e-5, batch_size, dssize)
+        print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+        et3,dt3 = calculate_privacy_loss3(max_iter, eps, 1e-5, batch_size, dssize)
+        print(f'final consumed budget in interval {[cmin,cmax]} is {et} with delta {dt}')
+
+        plt.plot(mean.index, mean.values, label=f'beta={b},eps without amplification, composition={eps},' + r'$\mathbf{consumed\ budget=}$' + f'{et1:.2f}')
+        plt.fill_between(mean.index, mean.values - std_error, mean.values + std_error, alpha=0.2)
+        plt.title('Mean and Standard Error of Test Set Log Likelihood, NICE')
+        plt.xlabel('Iterations')
+        plt.ylabel('Log Likelihood')
+        plt.legend()
+
+# Show the plot
+plt.show()
+# %%
+df1
+
+# %%
 avg_log_likelihoods = [i[6] for i in avg_log_likelihoods if i[0] == 'tanh']
 loss_hists = [i[6] for i in loss_hists if i[0] == 'tanh']
 
 avg_log_likelihoods = pd.DataFrame(avg_log_likelihoods)
 loss_hists = pd.DataFrame(loss_hists)
 
-# %%
-#avg_log_likelihoods = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods.pt')
-avg_log_likelihoods
-
-# %%
 
 df = pd.DataFrame(avg_log_likelihoods).T
 
@@ -1257,7 +1633,7 @@ plt.show()
 import torch
 import pandas as pd
 import numpy as np
-avg_log_likelihoods = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/NICE_loglikelihoods.pt')
+avg_log_likelihoods = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/NICE2_loglikelihoods.pt')
 loss_hists = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/losshists.pt')
 avg_log_likelihoods = [i[1] for i in avg_log_likelihoods if i[0] == 'tanh']
 loss_hists = [i[1] for i in loss_hists if i[0] == 'tanh']
@@ -1267,11 +1643,6 @@ loss_hists = [i[1] for i in loss_hists if i[0] == 'tanh']
 avg_log_likelihoods = pd.DataFrame(avg_log_likelihoods)
 loss_hists = pd.DataFrame(loss_hists)
 
-# %%
-#avg_log_likelihoods = torch.load(f'/home/samiri/SynDG/DOFLOWS/images/loglikelihoods.pt')
-avg_log_likelihoods
-
-# %%
 
 df = pd.DataFrame(avg_log_likelihoods).T
 
